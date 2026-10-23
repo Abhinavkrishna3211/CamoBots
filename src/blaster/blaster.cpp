@@ -31,7 +31,7 @@ static Preferences nvs;
 static Config cfg;
 static Phase phase = PH_IDLE;
 static uint32_t phaseStart, phaseEnd;  // millis()
-static uint32_t shotAt, lockUntil;
+static uint32_t shotAt, lockUntil, missAt;
 static bool shotPending;
 static uint16_t shots, misses;
 static uint8_t hp;
@@ -129,7 +129,7 @@ static void startRound(uint32_t now) {
   shots = misses = 0;
   hp = cfg.hp;
   shotPending = false;
-  lockUntil = 0;
+  lockUntil = missAt = 0;
   roundFirst = session.nextFirst;
   for (int i = 0; i < MAX_BODIES; i++) {
     auto& b = bodies[i];
@@ -211,6 +211,53 @@ static void checkAllFound(uint32_t now) {
   if (phase == PH_HUNT && aliveMask() == 0) endRound(now, true, "all bodies captured");
 }
 
+// FOUND, or a ping saying the body was hit (the FOUND was lost).
+static void found(int id, uint8_t shooter, uint32_t now) {
+  auto& b = bodies[id];
+  if (phase != PH_HUNT || !b.alive) return;  // duplicate or late
+  b.alive = false;
+  b.foundBy = shooter;
+  b.foundAt = huntMs(now);
+  closeCover(b, b.foundAt);
+  if (shotPending) shotPending = false;  // the shot hit
+  else if (missAt && now - missAt < 1500) {  // it hit, but the news came after the window: undo the miss
+    misses--;
+    if (cfg.hp) hp++;
+    lockUntil = missAt = 0;
+    Serial.println("[game] late FOUND, miss refunded");
+  }
+  Serial.printf("[game] FOUND body %d by seeker %u at %lu ms", id, shooter, b.foundAt);
+  if (is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled)) Serial.print(" WHISTLE HUNTER");
+  Serial.println();
+  event(EV_FOUND, id, shooter);
+  hw_sound(SND_CELEBRATE);
+  checkAllFound(now);
+}
+
+// COVERED, or a ping whose cover flag disagrees with ours.
+static void setCovered(int id, bool on, uint8_t strikes, bool out, uint32_t now) {
+  auto& b = bodies[id];
+  if (phase != PH_HUNT || !b.alive) return;
+  uint32_t t = huntMs(now);
+  if (on != b.covered || strikes != b.strikes) {
+    if (on && !b.covered) b.coverOnAt = t;
+    if (!on) closeCover(b, t);
+    b.covered = on;
+    b.strikes = strikes;
+    Serial.printf("[game] body %d %s, strikes %u\n", id, on ? "COVERED" : "clear", strikes);
+    event(on ? EV_COVER : EV_CLEAR, id, strikes);
+  }
+  if (out) {
+    b.alive = false;
+    b.struckOut = true;
+    b.foundAt = t;
+    closeCover(b, t);
+    Serial.printf("[game] body %d STRUCK OUT\n", id);
+    event(EV_OUT, id);
+    checkAllFound(now);
+  }
+}
+
 static void onRadio(const RadioMsg& m, uint32_t now) {
   if (m.h.type == MSG_HELLO) {
     if (((HelloMsg*)m.payload)->role != UNIT_BODY) return;  // extra blasters: later
@@ -248,7 +295,11 @@ static void onRadio(const RadioMsg& m, uint32_t now) {
       b.state = p->state;
       b.flags = p->flags;
       b.ldr = p->ldr;
-      if (phase == PH_HUNT && b.alive) b.missedSpotMs = p->beamMs;
+      if (phase == PH_HUNT && b.alive) {
+        b.missedSpotMs = p->beamMs;
+        if (p->hitBy < MAX_SEEKERS) found(id, p->hitBy, now);
+        else setCovered(id, p->flags & BF_COVERED, p->strikes, p->hitBy == HIT_STRUCK_OUT, now);
+      }
       // Self-heal: a body that missed a phase message (or rebooted) gets it again.
       bool bodyIdle = p->state == BS_IDLE;
       if ((phase == PH_HIDE || phase == PH_HUNT) && b.alive && bodyIdle) sendHideStart(id, now);
@@ -258,22 +309,9 @@ static void onRadio(const RadioMsg& m, uint32_t now) {
       } else if (phase == PH_IDLE && (p->state == BS_HIDE || p->state == BS_HUNT)) sendEnd(id, false);
       break;
     }
-    case MSG_FOUND: {
-      auto* f = (FoundMsg*)m.payload;
-      if (phase != PH_HUNT || !b.alive) return;  // duplicate or late
-      b.alive = false;
-      b.foundBy = f->shooter;
-      b.foundAt = huntMs(now);
-      closeCover(b, b.foundAt);
-      shotPending = false;  // the shot hit
-      Serial.printf("[game] FOUND body %d by seeker %u at %lu ms", id, f->shooter, b.foundAt);
-      if (is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled)) Serial.print(" WHISTLE HUNTER");
-      Serial.println();
-      event(EV_FOUND, id, f->shooter);
-      hw_sound(SND_CELEBRATE);
-      checkAllFound(now);
+    case MSG_FOUND:
+      found(id, ((FoundMsg*)m.payload)->shooter, now);
       break;
-    }
     case MSG_WHISTLE:
       if (phase == PH_HUNT && b.alive) {
         b.lastWhistle = huntMs(now);
@@ -283,23 +321,7 @@ static void onRadio(const RadioMsg& m, uint32_t now) {
       break;
     case MSG_COVERED: {
       auto* c = (CoveredMsg*)m.payload;
-      if (phase != PH_HUNT || !b.alive) return;
-      uint32_t t = huntMs(now);
-      if (c->on && !b.covered) b.coverOnAt = t;
-      if (!c->on) closeCover(b, t);
-      b.covered = c->on;
-      b.strikes = c->strikes;
-      Serial.printf("[game] body %d %s, strikes %u\n", id, c->on ? "COVERED" : "clear", c->strikes);
-      event(c->on ? EV_COVER : EV_CLEAR, id, c->strikes);
-      if (c->out) {
-        b.alive = false;
-        b.struckOut = true;
-        b.foundAt = t;
-        closeCover(b, t);
-        Serial.printf("[game] body %d STRUCK OUT\n", id);
-        event(EV_OUT, id);
-        checkAllFound(now);
-      }
+      setCovered(id, c->on, c->strikes, c->out, now);
       break;
     }
   }
@@ -543,6 +565,7 @@ void blaster_loop() {
       if (shotPending && now - shotAt >= SHOT_WINDOW_MS) {
         shotPending = false;
         misses++;
+        missAt = now;
         lockUntil = now + cfg.missLockMs;
         hw_sound(SND_BUZZ);
         event(EV_MISS, -1, 0);
@@ -551,6 +574,11 @@ void blaster_loop() {
           endRound(now, false, "seeker out of HP");
           break;
         }
+      }
+      static uint32_t lastScan;
+      if (!shotPending && now - lastScan >= SCAN_MS) {  // never scan inside a shot window
+        lastScan = now;
+        hw_scan();
       }
       if ((int32_t)(now - phaseEnd) >= 0) endRound(now, false, "time up");
       break;

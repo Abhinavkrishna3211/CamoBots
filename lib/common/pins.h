@@ -10,6 +10,8 @@
 #define PIN_LDR        2    // D1, ADC1
 #define PIN_BODY_SPK   3    // D2, strapping pin; move to 7 (D8) if boot misbehaves
 #define PIN_PIXEL      4    // D3
+#define PIXEL_COUNT    8    // 8-LED ring; 1 for a single WS2812B
+#define PIXEL_BRIGHTNESS 77 // about 30%, keeps the LiPo and the eyes happy
 
 // Blaster
 #define PIN_TRIGGER    1    // D0, to GND, internal pull-up

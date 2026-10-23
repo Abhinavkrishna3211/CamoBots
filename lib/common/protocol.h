@@ -6,7 +6,7 @@
 #include "config.h"
 
 #define PROTO_MAGIC   0xC4
-#define PROTO_VERSION 1
+#define PROTO_VERSION 2
 #define WIFI_CHANNEL  1
 #define MAX_BODIES    4   // 2-bit body id
 #define MAX_SEEKERS   4   // 2-bit shooter id
@@ -81,7 +81,11 @@ enum BodyState : uint8_t { BS_IDLE, BS_HIDE, BS_HUNT, BS_CAPTURED, BS_REVEAL };
 #define BF_COVERED 2
 
 struct PingMsg      { uint8_t id; uint32_t sent; uint32_t ackFails; uint8_t state; uint8_t flags; uint16_t ldr;
-                      uint32_t beamMs; };  // Missed Spot time this hunt
+                      uint32_t beamMs;    // Missed Spot time this hunt
+                      uint8_t hitBy;      // shooter that captured it this round, HIT_NONE or HIT_STRUCK_OUT
+                      uint8_t strikes; };
+#define HIT_NONE       0xFF
+#define HIT_STRUCK_OUT 0xFE
 struct HideStartMsg { Config cfg; uint32_t hideMs; uint32_t huntMs; };  // ms left; hideMs 0 = hunt already on
 struct StartMsg     { uint32_t huntMs; };
 struct FoundMsg     { uint8_t body; uint8_t shooter; };

@@ -54,6 +54,8 @@ In the SIM builds, type these into the serial monitor:
 
 The BOOT button fires on the blaster and counts as a hit on a body.
 
+To test each part on its own, flash `bench_body` or `bench_blaster` and open the serial monitor. The body prints every IR frame it decodes, raw TSOP edges and the light level once a second. On the blaster the trigger fires a shot, `burst 20` fires 20 shots half a second apart, and `scan` toggles Missed Spot scans. On both, `snd N` plays a sound and `pix N` sets a light state.
+
 Run the scoring tests on the PC with `pio test -e native`.
 
 If an upload fails and the board keeps restarting, hold **BOOT** while plugging in the USB cable, then upload again.
@@ -84,7 +86,8 @@ Badges over the session: Disguise (most survival), Sharpshooter (best accuracy),
 - [x] Full game logic with simulated sensors (hide, hunt, cover, strikes, misses, seeker HP, reveal)
 - [x] Scoring, badges and session totals (saved on the blaster)
 - [x] Game page
-- [ ] IR, light sensor, speaker and NeoPixel drivers
+- [x] Lost hit and cover messages are repeated in the next check-in
+- [ ] IR, light sensor, speaker and NeoPixel drivers tested on real parts (written, waiting on parts)
 
 Bench numbers are in [docs/bench-results.md](docs/bench-results.md).
 

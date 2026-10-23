@@ -21,3 +21,4 @@ struct Config {
 #define COVER_OFF_MS    2000
 #define PANIC_SEC       30
 #define SHOT_WINDOW_MS  300     // no FOUND within this after a shot = miss
+#define SCAN_MS         200     // blaster sends a Missed Spot scan frame this often in the hunt

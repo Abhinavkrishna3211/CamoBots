@@ -4,6 +4,7 @@
 #include "radio.h"
 
 #define PING_MS 500
+#define FAST_PING_MS 100  // after a capture or cover change, so a lost FOUND/COVERED is repeated inside the shot window
 
 static uint8_t hostMac[6];
 static int myId = -1;
@@ -20,6 +21,8 @@ static bool dark, coverCheck, covered;
 static uint32_t coverEdge;  // when the light last crossed the threshold
 static uint8_t strikes;
 static uint32_t missedSpotMs;
+static uint8_t hitBy = HIT_NONE;
+static uint32_t fastPingUntil;
 
 static uint32_t lastWhistle, lastBeep;
 
@@ -49,6 +52,7 @@ static void startHide(const HideStartMsg& h, uint32_t now) {
   coverCheck = true;
   strikes = 0;
   missedSpotMs = 0;
+  hitBy = HIT_NONE;
   lastBeep = 0;
   setState(BS_HIDE);
 }
@@ -67,7 +71,9 @@ static void startHunt(uint32_t now) {
   setState(BS_HUNT);
 }
 
-static void captured() {
+static void captured(uint8_t by) {
+  hitBy = by;
+  fastPingUntil = millis() + 1000;
   hw_sound(SND_TAUNT);
   setState(BS_CAPTURED);
 }
@@ -132,7 +138,7 @@ static void huntTick(uint32_t now) {
     FoundMsg f{(uint8_t)myId, (uint8_t)hit};
     send(MSG_FOUND, &f, sizeof f);
     Serial.printf("[body %d] hit by seeker %d\n", myId, hit);
-    return captured();
+    return captured(hit);
   }
   missedSpotMs += hw_beam_ms();
 
@@ -148,7 +154,8 @@ static void huntTick(uint32_t now) {
       send(MSG_COVERED, &c, sizeof c);
       Serial.printf("[body %d] %s, strikes %u%s\n", myId, covered ? "COVERED" : "clear", strikes,
                     out ? ", STRUCK OUT" : "");
-      if (out) return captured();
+      fastPingUntil = now + 1000;
+      if (out) return captured(HIT_STRUCK_OUT);
       if (covered) whistle(now);
     }
   }
@@ -209,10 +216,10 @@ void body_loop() {
       HelloMsg h{UNIT_BODY, 0xFF};
       radio_send(BCAST, MSG_HELLO, &h, sizeof h);
     }
-  } else if (now - lastTx >= PING_MS) {
+  } else if (now - lastTx >= ((int32_t)(fastPingUntil - now) > 0 ? FAST_PING_MS : PING_MS)) {
     lastTx = now;
     PingMsg p{(uint8_t)myId, now, radio_ack_fails(), state,
-              (uint8_t)((dark ? BF_DARK : 0) | (covered ? BF_COVERED : 0)), hw_ldr(), missedSpotMs};
+              (uint8_t)((dark ? BF_DARK : 0) | (covered ? BF_COVERED : 0)), hw_ldr(), missedSpotMs, hitBy, strikes};
     radio_send(hostMac, MSG_PING, &p, sizeof p);
   }
 }
