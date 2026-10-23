@@ -9,6 +9,7 @@ static const char* SND_NAME[] = {"beep", "whistle", "taunt", "fanfare", "buzz", 
 static Pix pix = PIX_OFF;
 static uint16_t simLdr = 2000;
 static int simHit = -1;
+static uint32_t simBeam;
 static bool simTrigger;
 static String line, pending;
 static bool havePending;
@@ -35,6 +36,12 @@ int hw_ir_hit() {
   return h;
 }
 
+uint32_t hw_beam_ms() {
+  uint32_t b = simBeam;
+  simBeam = 0;
+  return b;
+}
+
 bool hw_trigger() {
   bool t = simTrigger;
   simTrigger = false;
@@ -48,9 +55,10 @@ bool hw_cmd(String& out) {
   return true;
 }
 
-// SIM commands: hit [shooter], ldr N, cover, uncover, dark, fire. BOOT = hit (body) / fire (blaster).
+// SIM commands: hit [shooter], scan N (seconds in the beam), ldr N, cover, uncover, dark, fire. BOOT = hit (body) / fire (blaster).
 static void simCommand(String c) {
   if (c.startsWith("hit")) simHit = c.length() > 4 ? c.substring(4).toInt() : 0;
+  else if (c.startsWith("scan ")) simBeam += c.substring(5).toInt() * 1000u;
   else if (c.startsWith("ldr ")) simLdr = c.substring(4).toInt();
   else if (c == "cover") simLdr = 200;
   else if (c == "uncover") simLdr = 2000;

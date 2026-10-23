@@ -1,7 +1,9 @@
 #include <Arduino.h>
+#include <Preferences.h>
 #include <WebServer.h>
 #include "hw.h"
 #include "radio.h"
+#include "scoring.h"
 
 enum Phase : uint8_t { PH_IDLE, PH_HIDE, PH_HUNT, PH_REVEAL };
 static const char* PHASE_NAME[] = {"idle", "hide", "hunt", "reveal"};
@@ -16,14 +18,15 @@ struct Body {
   bool haveSeq;
   uint8_t state, flags;
   uint16_t ldr;
-  // round
-  bool alive, covered, struckOut;
+  // round (times are ms since hunt start)
+  bool alive, covered, struckOut, whistled;
   uint8_t strikes, foundBy;
-  uint32_t foundAt, lastWhistle;  // ms since hunt start
+  uint32_t foundAt, lastWhistle, coverOnAt, coveredMs, missedSpotMs;
 };
 
 static Body bodies[MAX_BODIES];
 static WebServer web(80);
+static Preferences nvs;
 
 static Config cfg;
 static Phase phase = PH_IDLE;
@@ -32,6 +35,46 @@ static uint32_t shotAt, lockUntil;
 static bool shotPending;
 static uint16_t shots, misses;
 static uint8_t hp;
+
+// Session: names, totals, the last round's result
+#define NAME_LEN 12
+static Session session;
+static char names[MAX_PLAYERS][NAME_LEN + 1];
+static uint8_t roundFirst;
+static bool haveLast, lastWon, scoredWon;
+static const char* lastWhy = "";
+static const char* scoredWhy = "";
+static RoundResult lastRes;
+static RoundScore lastScore;
+
+// Event feed for the page: sounds, kill feed. The page tracks the last n it saw.
+enum EvKind : uint8_t { EV_JOIN, EV_ROUND, EV_HUNT, EV_SHOT, EV_MISS, EV_FOUND, EV_WHISTLE, EV_COVER, EV_CLEAR,
+                        EV_OUT, EV_END };
+static const char* EV_NAME[] = {"join", "round", "hunt", "shot", "miss", "found", "whistle", "cover", "clear", "out", "end"};
+struct Event { uint16_t n; uint8_t kind; int8_t body, who; uint32_t t; };
+#define NUM_EVENTS 16
+static Event events[NUM_EVENTS];
+static uint16_t evCount;
+
+static void event(EvKind k, int body = -1, int who = -1) {
+  Event& e = events[evCount % NUM_EVENTS];
+  e = {++evCount, k, (int8_t)body, (int8_t)who, phase == PH_HUNT ? millis() - phaseStart : 0};
+}
+
+static void saveConfig() {
+  nvs.putBytes("cfg", &cfg, sizeof cfg);
+  nvs.putBytes("names", names, sizeof names);
+}
+
+static void saveSession() { nvs.putBytes("sess", &session, sizeof session); }
+
+static void load() {
+  nvs.begin("camobots");
+  for (int i = 0; i < MAX_PLAYERS; i++) snprintf(names[i], sizeof names[i], "PLAYER %d", i + 1);
+  if (nvs.getBytesLength("cfg") == sizeof cfg) nvs.getBytes("cfg", &cfg, sizeof cfg);
+  if (nvs.getBytesLength("names") == sizeof names) nvs.getBytes("names", names, sizeof names);
+  if (nvs.getBytesLength("sess") == sizeof session) nvs.getBytes("sess", &session, sizeof session);
+}
 
 static int bodyIdFor(const uint8_t* mac) {
   for (int i = 0; i < MAX_BODIES; i++)
@@ -75,24 +118,77 @@ static void sendEnd(int i, bool seekerWon) {
   radio_send(bodies[i].mac, MSG_END, &e, sizeof e);
 }
 
+static void closeCover(Body& b, uint32_t t) {
+  if (!b.covered) return;
+  b.covered = false;
+  b.coveredMs += t - b.coverOnAt;
+}
+
 static void startRound(uint32_t now) {
   setPhase(PH_HIDE, now, cfg.hideSec * 1000u);
   shots = misses = 0;
   hp = cfg.hp;
   shotPending = false;
   lockUntil = 0;
+  roundFirst = session.nextFirst;
   for (int i = 0; i < MAX_BODIES; i++) {
     auto& b = bodies[i];
     if (!b.used) continue;
     b.alive = true;
-    b.covered = b.struckOut = false;
+    b.covered = b.struckOut = b.whistled = false;
     b.strikes = 0;
-    b.foundAt = b.lastWhistle = 0;
+    b.foundAt = b.lastWhistle = b.coveredMs = b.missedSpotMs = 0;
     sendHideStart(i, now);
   }
+  event(EV_ROUND);
 }
 
-static void endRound(uint32_t now, bool seekerWon, const char* why) {
+static void scoreRound(uint32_t endMs) {
+  RoundResult& r = lastRes;
+  r = {};
+  r.huntMs = cfg.huntSec * 1000u;
+  r.endMs = endMs;
+  r.numSeekers = session.numSeekers;
+  r.shots[0] = shots;  // ponytail: host blaster only; extra blasters report MSG_SHOT later
+  for (int i = 0; i < MAX_BODIES; i++) {
+    auto& b = bodies[i];
+    if (!b.used) continue;
+    closeCover(b, b.alive ? endMs : b.foundAt);
+    BodyResult& o = r.body[i];
+    o.used = true;
+    o.alive = b.alive;
+    o.struckOut = b.struckOut;
+    o.foundBy = b.foundBy;
+    o.outAtMs = b.foundAt;
+    o.coveredMs = b.coveredMs;
+    o.coverEvents = b.strikes;
+    o.whistleHunter = !b.alive && is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled);
+    o.missedSpotMs = b.missedSpotMs;
+  }
+  lastScore = score_round(r);
+  scoredWon = lastWon;
+  scoredWhy = lastWhy;
+  session_add(session, r, lastScore);
+  saveSession();
+  haveLast = true;
+
+  uint8_t sk[MAX_PLAYERS], hd[MAX_PLAYERS];
+  rotation(roundFirst, session.numPlayers, session.numSeekers, sk, hd);
+  for (int k = 0; k < session.numSeekers; k++)
+    Serial.printf("[score] seeker %s: %d (hits %u)\n", names[sk[k]], lastScore.seeker[k], lastScore.hits[k]);
+  for (int i = 0; i < session.numPlayers - session.numSeekers && i < MAX_BODIES; i++)
+    if (r.body[i].used)
+      Serial.printf("[score] body %d %s: %d (survived %d s, spot %d%s%s)\n", i, names[hd[i]], lastScore.body[i],
+                    lastScore.survival[i], lastScore.missedSpot[i], lastScore.ghost[i] ? ", GHOST" : "",
+                    lastScore.lastChameleon[i] ? ", LAST CHAMELEON" : "");
+  for (int p = 0; p < session.numPlayers; p++)
+    Serial.printf("[score] total %s: %ld\n", names[p], session.p[p].points);
+}
+
+// scored = false for a round stopped by hand: it does not count.
+static void endRound(uint32_t now, bool seekerWon, const char* why, bool scored = true) {
+  uint32_t endMs = huntMs(now);
+  if (phase == PH_HIDE) scored = false;
   setPhase(PH_REVEAL, now, cfg.revealSec * 1000u);
   Serial.printf("[game] END: %s (%s). shots=%u misses=%u\n", seekerWon ? "SEEKER wins" : "HIDERS win", why, shots,
                 misses);
@@ -104,6 +200,10 @@ static void endRound(uint32_t now, bool seekerWon, const char* why) {
     Serial.printf(", strikes %u\n", b.strikes);
     sendEnd(i, seekerWon);
   }
+  lastWon = seekerWon;
+  lastWhy = why;
+  if (scored) scoreRound(endMs);
+  event(EV_END, -1, seekerWon);
   hw_sound(seekerWon ? SND_CELEBRATE : SND_FANFARE);
 }
 
@@ -120,6 +220,7 @@ static void onRadio(const RadioMsg& m, uint32_t now) {
     radio_send(m.mac, MSG_WELCOME, &w, sizeof w);
     bodies[id].haveSeq = false;
     Serial.printf("[link] body %d joined %02X:%02X:%02X\n", id, m.mac[3], m.mac[4], m.mac[5]);
+    event(EV_JOIN, id);
     return;
   }
 
@@ -147,6 +248,7 @@ static void onRadio(const RadioMsg& m, uint32_t now) {
       b.state = p->state;
       b.flags = p->flags;
       b.ldr = p->ldr;
+      if (phase == PH_HUNT && b.alive) b.missedSpotMs = p->beamMs;
       // Self-heal: a body that missed a phase message (or rebooted) gets it again.
       bool bodyIdle = p->state == BS_IDLE;
       if ((phase == PH_HIDE || phase == PH_HUNT) && b.alive && bodyIdle) sendHideStart(id, now);
@@ -162,29 +264,40 @@ static void onRadio(const RadioMsg& m, uint32_t now) {
       b.alive = false;
       b.foundBy = f->shooter;
       b.foundAt = huntMs(now);
+      closeCover(b, b.foundAt);
       shotPending = false;  // the shot hit
       Serial.printf("[game] FOUND body %d by seeker %u at %lu ms", id, f->shooter, b.foundAt);
-      if (b.lastWhistle && b.foundAt - b.lastWhistle <= 10000)
-        Serial.printf(" (%lu ms after its whistle)", b.foundAt - b.lastWhistle);
+      if (is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled)) Serial.print(" WHISTLE HUNTER");
       Serial.println();
+      event(EV_FOUND, id, f->shooter);
       hw_sound(SND_CELEBRATE);
       checkAllFound(now);
       break;
     }
     case MSG_WHISTLE:
-      if (phase == PH_HUNT) b.lastWhistle = huntMs(now);
+      if (phase == PH_HUNT && b.alive) {
+        b.lastWhistle = huntMs(now);
+        b.whistled = true;
+        event(EV_WHISTLE, id);
+      }
       break;
     case MSG_COVERED: {
       auto* c = (CoveredMsg*)m.payload;
       if (phase != PH_HUNT || !b.alive) return;
+      uint32_t t = huntMs(now);
+      if (c->on && !b.covered) b.coverOnAt = t;
+      if (!c->on) closeCover(b, t);
       b.covered = c->on;
       b.strikes = c->strikes;
       Serial.printf("[game] body %d %s, strikes %u\n", id, c->on ? "COVERED" : "clear", c->strikes);
+      event(c->on ? EV_COVER : EV_CLEAR, id, c->strikes);
       if (c->out) {
         b.alive = false;
         b.struckOut = true;
-        b.foundAt = huntMs(now);
+        b.foundAt = t;
+        closeCover(b, t);
         Serial.printf("[game] body %d STRUCK OUT\n", id);
+        event(EV_OUT, id);
         checkAllFound(now);
       }
       break;
@@ -198,66 +311,194 @@ static void manualWhistle(int i) {
   Serial.printf("[game] manual whistle -> body %d\n", i);
 }
 
-// Serial: start, stop, whistle N, set hide|hunt|whistle|reveal|lock|hp|strikes N, status
+static void resetSession() {
+  uint8_t np = session.numPlayers, ns = session.numSeekers;
+  session = Session();
+  session.numPlayers = np;
+  session.numSeekers = ns;
+  haveLast = false;
+  saveSession();
+  Serial.println("[game] session reset");
+}
+
+// Settings shared by serial "set k v" and the page's /config. Returns false for an unknown key.
+static bool setting(const String& k, int v) {
+  if (k == "hide") cfg.hideSec = constrain(v, 5, 600);
+  else if (k == "hunt") cfg.huntSec = constrain(v, 10, 1800);
+  else if (k == "whistle") cfg.whistleSec = v <= 0 ? 0 : constrain(v, 5, 300);
+  else if (k == "reveal") cfg.revealSec = constrain(v, 1, 60);
+  else if (k == "lock") cfg.missLockMs = constrain(v, 0, 10000);
+  else if (k == "hp") cfg.hp = constrain(v, 0, 20);
+  else if (k == "strikes") cfg.strikes = constrain(v, 0, 9);
+  else if (k == "cover") cfg.coverPct = constrain(v, 10, 90);
+  else if (k == "players") session.numPlayers = constrain(v, 2, MAX_PLAYERS);
+  else if (k == "seekers") session.numSeekers = constrain(v, 1, 1);  // ponytail: 1 until extra blasters exist
+  else if (k == "first") session.nextFirst = constrain(v, 0, MAX_PLAYERS - 1);
+  else return false;
+  session.nextFirst %= session.numPlayers;
+  return true;
+}
+
+static void setName(int i, const String& v) {
+  if (i < 0 || i >= MAX_PLAYERS) return;
+  // Only plain characters: names go straight into JSON and the page.
+  int n = 0;
+  for (size_t k = 0; k < v.length() && n < NAME_LEN; k++) {
+    char c = v[k];
+    if (isalnum(c) || c == ' ' || c == '-' || c == '_') names[i][n++] = toupper(c);
+  }
+  if (n) names[i][n] = 0;
+}
+
+static String stateJson();
+
+// Serial: start, stop, reset, whistle N, set <key> N, name N X, json, status
 static void command(String c, uint32_t now) {
+  bool between = phase == PH_IDLE || phase == PH_REVEAL;
   if (c == "start") {
-    if (phase == PH_IDLE) startRound(now);
+    if (between) startRound(now);
   } else if (c == "stop") {
-    if (phase == PH_HIDE || phase == PH_HUNT) endRound(now, false, "stopped");
+    if (!between) endRound(now, false, "stopped", false);
+  } else if (c == "reset") {
+    if (between) resetSession();
+  } else if (c == "json") {
+    Serial.println(stateJson());
   } else if (c.startsWith("whistle ")) {
     manualWhistle(c.substring(8).toInt());
-  } else if (c.startsWith("set ")) {
-    int sp = c.indexOf(' ', 4);
-    String k = c.substring(4, sp);
-    int v = c.substring(sp + 1).toInt();
-    if (k == "hide") cfg.hideSec = v;
-    else if (k == "hunt") cfg.huntSec = v;
-    else if (k == "whistle") cfg.whistleSec = v;
-    else if (k == "reveal") cfg.revealSec = v;
-    else if (k == "lock") cfg.missLockMs = v;
-    else if (k == "hp") cfg.hp = v;
-    else if (k == "strikes") cfg.strikes = v;
-    else return (void)Serial.printf("[game] unknown setting '%s'\n", k.c_str());
-    Serial.printf("[game] %s = %d\n", k.c_str(), v);
+  } else if (c.startsWith("set ") || c.startsWith("name ")) {
+    int a = c.indexOf(' '), sp = c.indexOf(' ', a + 1);
+    String k = c.substring(a + 1, sp), v = c.substring(sp + 1);
+    if (!between) return (void)Serial.println("[game] settings locked during a round");
+    if (c[0] == 'n') setName(k.toInt(), v);
+    else if (!setting(k, v.toInt())) return (void)Serial.printf("[game] unknown setting '%s'\n", k.c_str());
+    saveConfig();
+    saveSession();
+    Serial.printf("[game] %s = %s\n", k.c_str(), v.c_str());
   } else {
-    Serial.printf("[game] ch=%u ack ok=%lu fail=%lu phase=%s hide=%u hunt=%u whistle=%u reveal=%u lock=%u hp=%u strikes=%u\n",
-                  radio_channel(), radio_ack_ok(), radio_ack_fails(), PHASE_NAME[phase], cfg.hideSec, cfg.huntSec, cfg.whistleSec, cfg.revealSec, cfg.missLockMs,
-                  cfg.hp, cfg.strikes);
+    Serial.printf("[game] ch=%u ack ok=%lu fail=%lu phase=%s hide=%u hunt=%u whistle=%u reveal=%u lock=%u hp=%u "
+                  "strikes=%u cover=%u players=%u first=%u round=%u\n",
+                  radio_channel(), radio_ack_ok(), radio_ack_fails(), PHASE_NAME[phase], cfg.hideSec, cfg.huntSec,
+                  cfg.whistleSec, cfg.revealSec, cfg.missLockMs, cfg.hp, cfg.strikes, cfg.coverPct,
+                  session.numPlayers, session.nextFirst, session.round);
   }
 }
 
-static void handleRoot() {
+// ---- web ----
+
+extern const char index_html[] asm("_binary_web_index_html_start");
+extern const char index_html_end[] asm("_binary_web_index_html_end");
+
+static void add(String& s, const char* fmt, ...) {
+  char buf[192];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof buf, fmt, ap);
+  va_end(ap);
+  s += buf;
+}
+
+static String stateJson() {
   uint32_t now = millis();
-  int32_t left = phase == PH_IDLE ? 0 : (int32_t)(phaseEnd - now) / 1000;
-  String s = F("<!doctype html><meta name=viewport content='width=device-width'>"
-               "<meta http-equiv=refresh content=1><body style='background:#113;color:#7f7;font:16px monospace'>"
-               "<h2>CamoBots</h2>");
-  s += "<p>phase <b>" + String(PHASE_NAME[phase]) + "</b>, " + left + " s left, shots " + shots + ", misses " +
-       misses + (cfg.hp ? ", HP " + String(hp) : "") + "</p>";
-  s += F("<table border=1 cellpadding=4><tr><th>body<th>state<th>alive<th>strikes<th>light<th>lost<th>seen ms</tr>");
+  String s;
+  s.reserve(2560);
+  int32_t left = phase == PH_IDLE ? 0 : max<int32_t>(0, phaseEnd - now);
+  int32_t lock = phase == PH_HUNT ? max<int32_t>(0, lockUntil - now) : 0;
+  add(s, "{\"ph\":\"%s\",\"left\":%ld,\"len\":%lu,\"round\":%u,\"first\":%u,\"hp\":%u,\"hpMax\":%u,\"shots\":%u,"
+         "\"miss\":%u,\"lock\":%ld,\"won\":%d,\"why\":\"%s\",",
+      PHASE_NAME[phase], left, phaseEnd - phaseStart, session.round, phase == PH_IDLE ? session.nextFirst : roundFirst,
+      hp, cfg.hp, shots, misses, lock, lastWon, lastWhy);
+  add(s, "\"cfg\":{\"hide\":%u,\"hunt\":%u,\"whistle\":%u,\"reveal\":%u,\"lock\":%u,\"hp\":%u,\"strikes\":%u,"
+         "\"cover\":%u},\"np\":%u,\"ns\":%u,\"next\":%u,",
+      cfg.hideSec, cfg.huntSec, cfg.whistleSec, cfg.revealSec, cfg.missLockMs, cfg.hp, cfg.strikes, cfg.coverPct,
+      session.numPlayers, session.numSeekers, session.nextFirst);
+  s += "\"names\":[";
+  for (int i = 0; i < MAX_PLAYERS; i++) add(s, "%s\"%s\"", i ? "," : "", names[i]);
+  s += "],\"tot\":[";
+  for (int i = 0; i < session.numPlayers; i++) {
+    auto& t = session.p[i];
+    add(s, "%s[%ld,%u,%u,%u,%u,%ld,%ld,%u]", i ? "," : "", t.points, t.shots, t.hits, t.whistleHunters,
+        t.coverEvents, t.survival, t.missedSpot, t.ghosts);
+  }
+  s += "],\"badges\":[";
+  for (int b = 0; b < BADGE_COUNT; b++) add(s, "%s%d", b ? "," : "", badge_winner(session, (Badge)b));
+  s += "],\"bodies\":[";
+  bool first = true;
   for (int i = 0; i < MAX_BODIES; i++) {
     auto& b = bodies[i];
     if (!b.used) continue;
-    s += "<tr><td>" + String(i) + "<td>" + STATE_NAME[b.state % 5] + (b.flags & BF_DARK ? " DARK" : "") +
-         (b.flags & BF_COVERED ? " COVERED" : "") + "<td>" + (b.alive ? "yes" : "no") + "<td>" + b.strikes +
-         "<td>" + b.ldr + "<td>" + b.lost + "<td>" + (now - b.lastSeen) + "</tr>";
+    uint32_t t = huntMs(now);
+    add(s, "%s{\"id\":%d,\"st\":\"%s\",\"alive\":%d,\"cov\":%d,\"strk\":%u,\"dark\":%d,\"ldr\":%u,\"seen\":%lu,"
+           "\"ms\":%lu,\"wh\":%ld}",
+        first ? "" : ",", i, STATE_NAME[b.state % 5], b.alive, b.covered, b.strikes, (b.flags & BF_DARK) != 0, b.ldr,
+        now - b.lastSeen, b.missedSpotMs, phase == PH_HUNT && b.whistled ? (long)(t - b.lastWhistle) : -1L);
+    first = false;
   }
-  s += F("</table><p><a href=/start style=color:#ff7>start</a> &nbsp; <a href=/stop style=color:#ff7>stop</a></p>");
-  web.send(200, "text/html", s);
+  s += "],\"ev\":[";
+  for (int k = 0; k < NUM_EVENTS && k < evCount; k++) {
+    auto& e = events[(evCount - 1 - k) % NUM_EVENTS];
+    add(s, "%s[%u,\"%s\",%d,%d,%lu]", k ? "," : "", e.n, EV_NAME[e.kind], e.body, e.who, e.t);
+  }
+  s += "],\"last\":";
+  if (!haveLast) s += "null";
+  else {
+    auto& r = lastRes;
+    auto& c = lastScore;
+    add(s, "{\"won\":%d,\"why\":\"%s\",\"first\":%u,\"sweep\":%d,\"end\":%lu,\"sk\":[", scoredWon, scoredWhy, roundFirst,
+        c.cleanSweep, r.endMs);
+    for (int k = 0; k < r.numSeekers; k++) add(s, "%s[%d,%u,%u]", k ? "," : "", c.seeker[k], c.hits[k], r.shots[k]);
+    s += "],\"bd\":[";
+    for (int i = 0; i < MAX_BODIES; i++) {
+      auto& o = r.body[i];
+      add(s, "%s[%d,%d,%d,%d,%d,%d,%d,%d,%d,%lu,%d,%u]", i ? "," : "", o.used, c.body[i], c.survival[i],
+          c.missedSpot[i], c.ghost[i], c.lastChameleon[i], o.alive, o.struckOut, o.foundBy, o.outAtMs,
+          o.whistleHunter, o.coverEvents);
+    }
+    s += "]}";
+  }
+  s += "}";
+  return s;
 }
 
-static void redirectHome() {
-  web.sendHeader("Location", "/");
-  web.send(303);
+static void handleState() {
+  web.sendHeader("Cache-Control", "no-store");
+  web.send(200, "application/json", stateJson());
+}
+
+static void handleConfig() {
+  if (phase == PH_HIDE || phase == PH_HUNT) return web.send(409, "text/plain", "round running");
+  for (int i = 0; i < web.args(); i++) {
+    String k = web.argName(i);
+    if (k.startsWith("n") && k.length() == 2 && isdigit(k[1])) setName(k[1] - '0', web.arg(i));
+    else setting(k, web.arg(i).toInt());
+  }
+  saveConfig();
+  saveSession();
+  Serial.println("[game] config from page");
+  web.send(204);
+}
+
+static void action(const char* cmd) {
+  command(cmd, millis());
+  web.send(204);
 }
 
 void blaster_setup() {
   Serial.println("[blaster] boot");
+  load();
   hw_begin();
   radio_begin(true);
-  web.on("/", handleRoot);
-  web.on("/start", [] { command("start", millis()); redirectHome(); });
-  web.on("/stop", [] { command("stop", millis()); redirectHome(); });
+  web.on("/", [] {
+    web.send_P(200, "text/html", index_html, index_html_end - index_html - 1);  // txt embed adds a trailing 0
+  });
+  web.on("/state", handleState);
+  web.on("/config", handleConfig);
+  web.on("/start", [] { action("start"); });
+  web.on("/stop", [] { action("stop"); });
+  web.on("/reset", [] { action("reset"); });
+  web.on("/whistle", [] {
+    manualWhistle(web.arg("b").toInt());
+    web.send(204);
+  });
   web.begin();
   Serial.println("[blaster] web on http://192.168.4.1");
 }
@@ -283,6 +524,7 @@ void blaster_loop() {
         StartMsg s{cfg.huntSec * 1000u};
         for (int i = 0; i < MAX_BODIES; i++)
           if (bodies[i].used) radio_send(bodies[i].mac, MSG_START, &s, sizeof s);
+        event(EV_HUNT);
       }
       break;
     case PH_HUNT:
@@ -295,6 +537,7 @@ void blaster_loop() {
           shotAt = now;
           hw_fire();
           hw_sound(SND_FIRE);
+          event(EV_SHOT, -1, 0);
         }
       }
       if (shotPending && now - shotAt >= SHOT_WINDOW_MS) {
@@ -302,6 +545,7 @@ void blaster_loop() {
         misses++;
         lockUntil = now + cfg.missLockMs;
         hw_sound(SND_BUZZ);
+        event(EV_MISS, -1, 0);
         Serial.printf("[game] MISS (%u of %u shots), locked %u ms\n", misses, shots, cfg.missLockMs);
         if (cfg.hp && --hp == 0) {
           endRound(now, false, "seeker out of HP");

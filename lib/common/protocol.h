@@ -80,7 +80,8 @@ enum BodyState : uint8_t { BS_IDLE, BS_HIDE, BS_HUNT, BS_CAPTURED, BS_REVEAL };
 #define BF_DARK    1
 #define BF_COVERED 2
 
-struct PingMsg      { uint8_t id; uint32_t sent; uint32_t ackFails; uint8_t state; uint8_t flags; uint16_t ldr; };
+struct PingMsg      { uint8_t id; uint32_t sent; uint32_t ackFails; uint8_t state; uint8_t flags; uint16_t ldr;
+                      uint32_t beamMs; };  // Missed Spot time this hunt
 struct HideStartMsg { Config cfg; uint32_t hideMs; uint32_t huntMs; };  // ms left; hideMs 0 = hunt already on
 struct StartMsg     { uint32_t huntMs; };
 struct FoundMsg     { uint8_t body; uint8_t shooter; };

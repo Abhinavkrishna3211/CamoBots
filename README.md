@@ -49,19 +49,41 @@ In the SIM builds, type these into the serial monitor:
 
 | Board | Commands |
 |---|---|
-| Blaster | `start`, `stop`, `fire`, `whistle N`, `set hide/hunt/whistle/reveal/lock/hp/strikes N`, `status` |
-| Body | `hit [seeker]`, `cover`, `uncover`, `dark`, `ldr N`, `status` |
+| Blaster | `start`, `stop`, `fire`, `whistle N`, `set hide/hunt/whistle/reveal/lock/hp/strikes/cover/players/first N`, `name N TEXT`, `reset` (new session), `json`, `status` |
+| Body | `hit [seeker]`, `scan N` (N seconds in the beam), `cover`, `uncover`, `dark`, `ldr N`, `status` |
 
 The BOOT button fires on the blaster and counts as a hit on a body.
 
+Run the scoring tests on the PC with `pio test -e native`.
+
 If an upload fails and the board keeps restarting, hold **BOOT** while plugging in the USB cable, then upload again.
+
+## Game page
+
+Join the `CamoBots` Wi-Fi and open `http://192.168.4.1`. The page is built into the blaster firmware, so it works with no internet.
+
+- **Live:** timer, seeker HP and shots, one card per body with strikes, Missed Spot meter, signal and a whistle button, plus a kill feed.
+- **Setup:** round times, seeker HP, cover strikes, player names and who seeks next. Saved on the blaster.
+- **Scores:** session leaderboard, badges and the last round breakdown.
+- **Big screen:** a large view for a laptop or TV while filming.
+
+Open `web/index.html?mock` in any browser to try the page with a fake game. Tap a chameleon to spot it, press Space to fire.
+
+## Scoring
+
+| Who | Points |
+|---|---|
+| Hider | 1 per second survived (not while covered), +5 per second in the beam without being shot (Missed Spot), +100 if never found (Ghost), +50 for the sole survivor (Last Chameleon), -20 per cover strike |
+| Seeker | 100 + seconds left per capture, +25 within 10 s of that body's whistle (Whistle Hunter), +100 for finding everyone (Clean Sweep) |
+
+Badges over the session: Disguise (most survival), Sharpshooter (best accuracy), Eagle Ears (most Whistle Hunters), Cover Cheater (most cover strikes), Daredevil (most Missed Spot).
 
 ## Status
 
 - [x] ESP-NOW link with the hotspot on one channel (0 lost packets, 10 m and 2 walls)
 - [x] Full game logic with simulated sensors (hide, hunt, cover, strikes, misses, seeker HP, reveal)
-- [ ] Scoring and badges
-- [ ] Web page
+- [x] Scoring, badges and session totals (saved on the blaster)
+- [x] Game page
 - [ ] IR, light sensor, speaker and NeoPixel drivers
 
 Bench numbers are in [docs/bench-results.md](docs/bench-results.md).

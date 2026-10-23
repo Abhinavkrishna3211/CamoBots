@@ -19,6 +19,7 @@ static uint16_t baseline;
 static bool dark, coverCheck, covered;
 static uint32_t coverEdge;  // when the light last crossed the threshold
 static uint8_t strikes;
+static uint32_t missedSpotMs;
 
 static uint32_t lastWhistle, lastBeep;
 
@@ -47,6 +48,7 @@ static void startHide(const HideStartMsg& h, uint32_t now) {
   dark = covered = false;
   coverCheck = true;
   strikes = 0;
+  missedSpotMs = 0;
   lastBeep = 0;
   setState(BS_HIDE);
 }
@@ -132,6 +134,7 @@ static void huntTick(uint32_t now) {
     Serial.printf("[body %d] hit by seeker %d\n", myId, hit);
     return captured();
   }
+  missedSpotMs += hw_beam_ms();
 
   if (coverCheck) {
     bool low = hw_ldr() < (uint32_t)baseline * cfg.coverPct / 100;
@@ -170,7 +173,10 @@ void body_loop() {
   while (radio_poll(&m)) onRadio(m, now);
 
   // ignore stray hits outside the hunt
-  if (state != BS_HUNT) hw_ir_hit();
+  if (state != BS_HUNT) {
+    hw_ir_hit();
+    hw_beam_ms();
+  }
 
   switch (state) {
     case BS_IDLE: break;
@@ -192,9 +198,9 @@ void body_loop() {
   hw_pixel(p);
 
   String c;
-  if (hw_cmd(c)) Serial.printf("[body %d] ch=%u rx=%lu ackfail=%lu state=%d ldr=%u baseline=%u strikes=%u (unknown cmd '%s')\n", myId,
+  if (hw_cmd(c)) Serial.printf("[body %d] ch=%u rx=%lu ackfail=%lu state=%d ldr=%u baseline=%u strikes=%u spot=%lums (unknown cmd '%s')\n", myId,
                                radio_channel(), radio_rx_raw(), radio_ack_fails(),
-                               state, hw_ldr(), baseline, strikes, c.c_str());
+                               state, hw_ldr(), baseline, strikes, missedSpotMs, c.c_str());
 
   static uint32_t lastTx;
   if (myId < 0) {
@@ -206,7 +212,7 @@ void body_loop() {
   } else if (now - lastTx >= PING_MS) {
     lastTx = now;
     PingMsg p{(uint8_t)myId, now, radio_ack_fails(), state,
-              (uint8_t)((dark ? BF_DARK : 0) | (covered ? BF_COVERED : 0)), hw_ldr()};
+              (uint8_t)((dark ? BF_DARK : 0) | (covered ? BF_COVERED : 0)), hw_ldr(), missedSpotMs};
     radio_send(hostMac, MSG_PING, &p, sizeof p);
   }
 }
