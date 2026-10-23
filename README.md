@@ -45,12 +45,21 @@ pio run -e blaster -t upload --upload-port COMy
 
 `body_sim` and `blaster_sim` build the same firmware with simulated sensors, so the game runs on bare boards with no parts wired.
 
+In the SIM builds, type these into the serial monitor:
+
+| Board | Commands |
+|---|---|
+| Blaster | `start`, `stop`, `fire`, `whistle N`, `set hide/hunt/whistle/reveal/lock/hp/strikes N`, `status` |
+| Body | `hit [seeker]`, `cover`, `uncover`, `dark`, `ldr N`, `status` |
+
+The BOOT button fires on the blaster and counts as a hit on a body.
+
 If an upload fails and the board keeps restarting, hold **BOOT** while plugging in the USB cable, then upload again.
 
 ## Status
 
 - [x] ESP-NOW link with the hotspot on one channel (0 lost packets, 10 m and 2 walls)
-- [ ] Full game logic
+- [x] Full game logic with simulated sensors (hide, hunt, cover, strikes, misses, seeker HP, reveal)
 - [ ] Scoring and badges
 - [ ] Web page
 - [ ] IR, light sensor, speaker and NeoPixel drivers

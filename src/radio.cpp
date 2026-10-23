@@ -12,12 +12,13 @@ struct RxItem {
 };
 
 static QueueHandle_t rxq;
-static volatile uint32_t ackOk, ackFail;
+static volatile uint32_t ackOk, ackFail, rxRaw;
 static uint16_t seq;
 static bool apMode;
 
 // Runs in the Wi-Fi task: copy out and return fast.
 static void onRecv(const uint8_t* mac, const uint8_t* data, int len) {
+  rxRaw++;
   if (len <= 0 || len > 250) return;
   RxItem it;
   memcpy(it.mac, mac, 6);
@@ -42,12 +43,15 @@ static bool addPeer(const uint8_t* mac) {
 
 void radio_begin(bool ap) {
   apMode = ap;
+  WiFi.persistent(false);
   if (ap) {
     WiFi.mode(WIFI_AP);
     WiFi.softAP("CamoBots", nullptr, WIFI_CHANNEL);
   } else {
     WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
+    // A board with a router saved from an old sketch keeps scanning and hops off our channel.
+    WiFi.setAutoReconnect(false);
+    WiFi.disconnect(false, true);
     esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
   }
   esp_wifi_set_ps(WIFI_PS_NONE);  // modem sleep drops ESP-NOW frames
@@ -64,7 +68,9 @@ bool radio_send(const uint8_t* mac, uint8_t type, const void* payload, size_t le
   uint8_t buf[250];
   if (len > sizeof(Packet::payload) || !addPeer(mac)) return false;
   size_t n = proto_pack(buf, type, seq++, payload, len);
-  return esp_now_send(mac, buf, n) == ESP_OK;
+  esp_err_t e = esp_now_send(mac, buf, n);
+  if (e != ESP_OK) Serial.printf("[radio] send type %u failed: %s\n", type, esp_err_to_name(e));
+  return e == ESP_OK;
 }
 
 bool radio_poll(RadioMsg* out) {
@@ -83,3 +89,11 @@ bool radio_poll(RadioMsg* out) {
 
 uint32_t radio_ack_fails() { return ackFail; }
 uint32_t radio_ack_ok() { return ackOk; }
+uint32_t radio_rx_raw() { return rxRaw; }
+
+uint8_t radio_channel() {
+  uint8_t ch;
+  wifi_second_chan_t sec;
+  esp_wifi_get_channel(&ch, &sec);
+  return ch;
+}

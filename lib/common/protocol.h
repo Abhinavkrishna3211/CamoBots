@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include "config.h"
 
 #define PROTO_MAGIC   0xC4
 #define PROTO_VERSION 1
@@ -75,5 +76,15 @@ inline int proto_unpack(const uint8_t* in, size_t n, MsgHeader* h, const uint8_t
 #pragma pack(push, 1)
 struct HelloMsg   { uint8_t role; uint8_t savedId; };   // savedId 0xFF = none
 struct WelcomeMsg { uint8_t role; uint8_t id; };
-struct PingMsg    { uint8_t id; uint32_t sent; uint32_t ackFails; };
+enum BodyState : uint8_t { BS_IDLE, BS_HIDE, BS_HUNT, BS_CAPTURED, BS_REVEAL };
+#define BF_DARK    1
+#define BF_COVERED 2
+
+struct PingMsg      { uint8_t id; uint32_t sent; uint32_t ackFails; uint8_t state; uint8_t flags; uint16_t ldr; };
+struct HideStartMsg { Config cfg; uint32_t hideMs; uint32_t huntMs; };  // ms left; hideMs 0 = hunt already on
+struct StartMsg     { uint32_t huntMs; };
+struct FoundMsg     { uint8_t body; uint8_t shooter; };
+struct WhistleMsg   { uint8_t body; };
+struct CoveredMsg   { uint8_t body; uint8_t on; uint8_t strikes; uint8_t out; };
+struct EndMsg       { uint8_t aliveMask; uint8_t seekerWon; };
 #pragma pack(pop)

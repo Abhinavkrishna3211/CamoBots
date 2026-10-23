@@ -17,3 +17,5 @@ bool radio_send(const uint8_t* mac, uint8_t type, const void* payload, size_t le
 bool radio_poll(RadioMsg* out);  // non-blocking; false when queue empty
 uint32_t radio_ack_fails();      // unicast sends with no MAC-level ACK
 uint32_t radio_ack_ok();
+uint8_t radio_channel();         // actual Wi-Fi channel right now
+uint32_t radio_rx_raw();         // every ESP-NOW frame received, before checks
