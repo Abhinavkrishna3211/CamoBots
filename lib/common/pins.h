@@ -9,9 +9,10 @@
 #define PIN_TSOP       1    // D0, TSOP38238 out, active low
 #define PIN_LDR        2    // D1, ADC1
 #define PIN_BODY_SPK   3    // D2, strapping pin; move to 7 (D8) if boot misbehaves
-#define PIN_PIXEL      4    // D3
-#define PIXEL_COUNT    8    // 8-LED ring; 1 for a single WS2812B
-#define PIXEL_BRIGHTNESS 77 // about 30%, keeps the LiPo and the eyes happy
+#define PIN_RGB_R      4    // D3, common-anode RGB LED: anode to 3V3, pin low = on
+#define PIN_RGB_G      5    // D4
+#define PIN_RGB_B      6    // D5
+#define RGB_BRIGHTNESS 255  // 0..255 scale on every colour; lower it if the LED is too bright
 
 // Blaster
 #define PIN_TRIGGER    1    // D0, to GND, internal pull-up

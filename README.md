@@ -19,7 +19,7 @@ All boards are Seeed Studio XIAO ESP32-S3.
 
 | Unit | Parts |
 |---|---|
-| Body (x2) | TSOP38238 IR receiver, LDR, speaker on an NPN driver, NeoPixel, 400-500 mAh LiPo, slide switch |
+| Body (x2) | TSOP38238 IR receiver, LDR, speaker on an NPN driver, common-anode RGB LED, 400-500 mAh LiPo, slide switch |
 | Blaster (x1) | 940 nm IR LED on a transistor, red aim LED, trigger button, speaker, optional 0.96" OLED, 2200 mAh Li-ion |
 
 The optional OLED on the blaster shows the timer, HP, shots and which bodies are left. After each capture it shows who was caught, the points earned and how many bodies are left. If no OLED is wired, the blaster skips it.
@@ -33,8 +33,8 @@ The blaster is also the game host. It runs a Wi-Fi hotspot called `CamoBots`, ta
 | D0 | 1 | TSOP IR in | Trigger button |
 | D1 | 2 | LDR | IR LED (38 kHz) |
 | D2 | 3 | Speaker | Aim LED |
-| D3 | 4 | NeoPixel | Speaker |
-| D4 / D5 | 5 / 6 | free | OLED SDA / SCL |
+| D3 | 4 | RGB red | Speaker |
+| D4 / D5 | 5 / 6 | RGB green / blue | OLED SDA / SCL |
 
 ## Building
 
@@ -89,7 +89,7 @@ Badges over the session: Disguise (most survival), Sharpshooter (best accuracy),
 - [x] Scoring, badges and session totals (saved on the blaster)
 - [x] Game page
 - [x] Lost hit and cover messages are repeated in the next check-in
-- [ ] IR, light sensor, speaker and NeoPixel drivers tested on real parts (written, waiting on parts)
+- [ ] IR, light sensor, speaker and RGB LED drivers tested on real parts (written, waiting on parts)
 
 Bench numbers are in [docs/bench-results.md](docs/bench-results.md).
 

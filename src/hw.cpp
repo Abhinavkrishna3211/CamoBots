@@ -3,7 +3,7 @@
 #include "config.h"
 
 // SIM builds fake the sensors over serial and use the user LED for the pixel.
-// Real builds drive the TSOP, LDR, IR LED (RMT), speaker (LEDC) and NeoPixel.
+// Real builds drive the TSOP, LDR, IR LED (RMT), speaker (LEDC) and RGB LED.
 // All timings here are first guesses: tune them on the bench (docs/bench-results.md).
 
 static const char* PIX_NAME[] = {"off", "idle", "hide", "dark", "covered", "captured", "reveal", "live", "locked"};
@@ -84,8 +84,22 @@ static void soundUpdate(uint32_t now) {
 }
 
 #if defined(ROLE_BODY)
-#include <Adafruit_NeoPixel.h>
-static Adafruit_NeoPixel strip(PIXEL_COUNT, PIN_PIXEL, NEO_GRB + NEO_KHZ800);
+// RGB LED on LEDC 2..4 (channel 0 is the speaker and shares a timer with 1).
+static const uint8_t RGB_PIN[3] = {PIN_RGB_R, PIN_RGB_G, PIN_RGB_B};
+#define RGB_CH 2
+
+static void rgb(uint8_t r, uint8_t g, uint8_t b) {
+  uint8_t c[3] = {r, g, b};
+  for (int i = 0; i < 3; i++) ledcWrite(RGB_CH + i, 255 - c[i] * RGB_BRIGHTNESS / 255);  // common anode: inverted
+}
+
+// Hue 0..255 around the colour wheel at full brightness.
+static void wheel(uint8_t h) {
+  uint8_t x = (h % 85) * 3;
+  if (h < 85) rgb(255 - x, x, 0);
+  else if (h < 170) rgb(0, 255 - x, x);
+  else rgb(x, 0, 255 - x);
+}
 
 // ---- IR receive: TSOP is active low. The ISR times marks and builds the byte.
 static volatile uint32_t rxEdges, rxBad, lastEdge;
@@ -123,33 +137,27 @@ static void pixelUpdate(uint32_t now) {
   static uint32_t last;
   if (now - last < 20) return;
   last = now;
-  uint32_t c = 0;
-  bool blink;
   switch (pix) {
-    case PIX_OFF: break;
-    case PIX_IDLE: c = strip.Color(0, 40, 30); break;
-    case PIX_HIDE: {  // blue, slow pulse
-      uint8_t v = strip.sine8((now / 8) & 0xFF);
-      c = strip.Color(0, 0, 40 + v * 215 / 255);
+    case PIX_IDLE: rgb(0, 40, 30); break;
+    case PIX_HIDE: {  // blue, slow triangle pulse
+      uint8_t t = now / 8;
+      rgb(0, 0, 40 + (t < 128 ? t : 255 - t) * 215 / 127);
       break;
     }
-    case PIX_DARK: blink = (now / 150) % 2; c = blink ? strip.Color(255, 120, 0) : 0; break;
-    case PIX_COVERED: blink = (now / 250) % 2; c = blink ? strip.Color(255, 120, 0) : 0; break;
-    case PIX_CAPTURED: blink = (now / 200) % 2; c = blink ? strip.Color(255, 0, 0) : 0; break;
-    case PIX_REVEAL:
-      for (int i = 0; i < PIXEL_COUNT; i++) strip.setPixelColor(i, strip.ColorHSV(now * 64 + i * 65536 / PIXEL_COUNT));
-      strip.show();
-      return;
-    default: break;
+    case PIX_DARK: (now / 150) % 2 ? rgb(255, 120, 0) : rgb(0, 0, 0); break;
+    case PIX_COVERED: (now / 250) % 2 ? rgb(255, 120, 0) : rgb(0, 0, 0); break;
+    case PIX_CAPTURED: (now / 200) % 2 ? rgb(255, 0, 0) : rgb(0, 0, 0); break;
+    case PIX_REVEAL: wheel(now / 8); break;
+    default: rgb(0, 0, 0); break;
   }
-  strip.fill(c);
-  strip.show();
 }
 
 static void hwRealBegin() {
-  strip.begin();
-  strip.setBrightness(PIXEL_BRIGHTNESS);
-  strip.show();
+  for (int i = 0; i < 3; i++) {
+    ledcSetup(RGB_CH + i, 5000, 8);
+    ledcAttachPin(RGB_PIN[i], RGB_CH + i);
+  }
+  rgb(0, 0, 0);
   pinMode(PIN_LDR, INPUT);
   pinMode(PIN_TSOP, INPUT_PULLUP);
   attachInterrupt(PIN_TSOP, tsopIsr, CHANGE);
