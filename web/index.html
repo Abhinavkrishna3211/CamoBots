@@ -376,8 +376,10 @@ function onEvent(e,quiet){
     case"hunt":msg="THE HUNT IS ON!";break;
     case"shot":if(!quiet)fx("flash");break;
     case"miss":msg=`${SK} MISSED! RELOADING`;if(!quiet){pop("MISS!","#ff3f5a");shake()}break;
-    case"found":{const wh=lastWh[b]!=null&&t-lastWh[b]<=10000;
-      msg=`${SK} SPOTTED ${H} AT ${elapsed(t)}${wh?" · WHISTLE HUNTER +25":""}`;if(!quiet)splat(col,"SPOTTED!");break}
+    case"found":{const wh=lastWh[b]!=null&&t-lastWh[b]<=10000,pts=100+Math.max(0,Math.floor((S.cfg.hunt*1000-t)/1000))+(wh?25:0),
+        left=S.bodies.filter(x=>x.alive).length;
+      msg=`${SK} SPOTTED ${H} AT ${elapsed(t)} +${pts}${wh?" · WHISTLE HUNTER +25":""} · ${left?left+" LEFT":"CLEAN SWEEP +100"}`;
+      if(!quiet){splat(col,"SPOTTED!");setTimeout(()=>pop(`${SK} +${pts}`,"#ffd23f"),700);if(left)setTimeout(()=>pop(`${left} LEFT`,"#fff"),1700)}break}
     case"whistle":lastWh[b]=t;
       if(lastWhFeed[b]==null||t-lastWhFeed[b]>6000||t<lastWhFeed[b]){lastWhFeed[b]=t;msg=`${H} WHISTLED!`}
       if(!quiet)bubble(b,"FWEET!");break;

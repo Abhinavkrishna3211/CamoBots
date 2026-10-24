@@ -22,6 +22,8 @@ All boards are Seeed Studio XIAO ESP32-S3.
 | Body (x2) | TSOP38238 IR receiver, LDR, speaker on an NPN driver, NeoPixel, 400-500 mAh LiPo, slide switch |
 | Blaster (x1) | 940 nm IR LED on a transistor, red aim LED, trigger button, speaker, optional 0.96" OLED, 2200 mAh Li-ion |
 
+The optional OLED on the blaster shows the timer, HP, shots and which bodies are left. After each capture it shows who was caught, the points earned and how many bodies are left. If no OLED is wired, the blaster skips it.
+
 The blaster is also the game host. It runs a Wi-Fi hotspot called `CamoBots`, talks to the bodies over ESP-NOW on channel 1, and serves the game page at `http://192.168.4.1`.
 
 ### Pin map

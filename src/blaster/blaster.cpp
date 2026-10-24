@@ -1,6 +1,9 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <WebServer.h>
+#include <Wire.h>
+#include <Adafruit_SSD1306.h>
+#include "pins.h"
 #include "hw.h"
 #include "radio.h"
 #include "scoring.h"
@@ -35,6 +38,8 @@ static uint32_t shotAt, lockUntil, missAt;
 static bool shotPending;
 static uint16_t shots, misses;
 static uint8_t hp;
+static int8_t killBody = -1;  // last capture, shown big on the OLED
+static uint32_t killAt;
 
 // Session: names, totals, the last round's result
 #define NAME_LEN 12
@@ -230,6 +235,8 @@ static void found(int id, uint8_t shooter, uint32_t now) {
   if (is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled)) Serial.print(" WHISTLE HUNTER");
   Serial.println();
   event(EV_FOUND, id, shooter);
+  killBody = id;
+  killAt = now;
   hw_sound(SND_CELEBRATE);
   checkAllFound(now);
 }
@@ -504,11 +511,145 @@ static void action(const char* cmd) {
   web.send(204);
 }
 
+// ---- Optional 0.96" OLED: the same game info as the phone, for when no phone is handy.
+static Adafruit_SSD1306 oled(128, 64, &Wire);
+static bool haveOled;
+#define KILL_MS 3000
+
+static void oledBegin() {
+  Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
+  Wire.setClock(400000);
+  Wire.beginTransmission(0x3C);
+  haveOled = Wire.endTransmission() == 0 && oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  Serial.printf("[blaster] OLED %s\n", haveOled ? "found" : "not found, skipped");
+}
+
+// What the seeker earned for one capture; matches score_round.
+static int capturePts(const Body& b) {
+  if (b.alive || b.struckOut) return 0;
+  uint32_t huntLen = cfg.huntSec * 1000u;
+  return PTS_CAPTURE + (huntLen > b.foundAt ? (huntLen - b.foundAt) / 1000 : 0) +
+         (is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled) ? PTS_WHISTLE_HUNTER : 0);
+}
+
+static const char* hiderName(int body) {
+  uint8_t sk[MAX_PLAYERS], hd[MAX_PLAYERS];
+  rotation(roundFirst, session.numPlayers, session.numSeekers, sk, hd);
+  return body < session.numPlayers - session.numSeekers ? names[hd[body]] : "?";
+}
+
+static void drawKill() {
+  auto& b = bodies[killBody];
+  uint8_t sk[MAX_PLAYERS], hd[MAX_PLAYERS];
+  rotation(roundFirst, session.numPlayers, session.numSeekers, sk, hd);
+  int total = 0, left = 0;
+  for (auto& o : bodies) total += capturePts(o), left += o.used && o.alive;
+  if (!left) total += PTS_CLEAN_SWEEP;
+
+  oled.setTextSize(2);
+  oled.setCursor(0, 0);
+  oled.print("GOTCHA!");
+  oled.setTextSize(1);
+  oled.setCursor(0, 18);
+  oled.printf("%s FOUND %lu:%02lu", hiderName(killBody), b.foundAt / 60000, b.foundAt / 1000 % 60);
+  oled.setTextSize(2);
+  oled.setCursor(0, 29);
+  oled.printf("+%d", capturePts(b));
+  oled.setTextSize(1);
+  oled.setCursor(64, 29);
+  oled.print(names[sk[0]]);
+  oled.setCursor(64, 38);
+  oled.printf("ROUND %d", total);
+  oled.setCursor(0, 47);
+  if (is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled)) oled.print("WHISTLE HUNTER +25");
+  oled.setCursor(0, 56);
+  if (left) oled.printf("%d LEFT TO FIND", left);
+  else oled.printf("CLEAN SWEEP! +%d", PTS_CLEAN_SWEEP);
+}
+
+// Redraws only when something on it changes; a full frame takes about 25 ms over I2C.
+static void oledUpdate(uint32_t now) {
+  if (!haveOled) return;
+  bool kill = killBody >= 0 && now - killAt < KILL_MS;
+  bool locked = phase == PH_HUNT && (int32_t)(now - lockUntil) < 0;
+  int32_t left = phase == PH_IDLE ? 0 : max<int32_t>(0, phaseEnd - now) / 1000;
+  uint32_t key = phase | left << 2 | hp << 12 | shots << 16 | misses << 24 | locked << 30 | (uint32_t)kill << 31;
+  for (int i = 0; i < MAX_BODIES; i++) key ^= (bodies[i].used | bodies[i].alive << 1 | bodies[i].covered << 2) << (i * 3);
+  if (kill) key = 0xFFFF0000u | killBody;  // hold the kill screen still
+  static uint32_t lastKey = ~0u;
+  if (key == lastKey) return;
+  lastKey = key;
+
+  oled.clearDisplay();
+  oled.setTextColor(SSD1306_WHITE);
+  if (kill) {
+    drawKill();
+    oled.display();
+    return;
+  }
+  oled.setTextSize(1);
+  oled.setCursor(0, 0);
+  static const char* TITLE[] = {"CAMOBOTS", "HIDE", "HUNT", "REVEAL"};
+  oled.printf("%-10s R%u", TITLE[phase], session.round + (phase == PH_IDLE || phase == PH_REVEAL ? 0 : 1));
+
+  oled.setCursor(0, 14);
+  if (phase == PH_IDLE) {
+    oled.print("192.168.4.1\n\n");
+    int n = 0;
+    for (auto& b : bodies) n += b.used;
+    oled.printf("%d bodies joined", n);
+  } else if (phase == PH_REVEAL) {
+    oled.setTextSize(2);
+    oled.print(lastWon ? "SEEKER\nWINS" : "HIDERS\nWIN");
+  } else {
+    oled.setTextSize(3);
+    oled.printf("%ld:%02ld", left / 60, left % 60);
+  }
+
+  oled.setTextSize(1);
+  if (phase == PH_HUNT) {
+    oled.setCursor(0, 40);
+    if (cfg.hp) oled.printf("HP %u/%u ", hp, cfg.hp);
+    oled.printf("SHOT %u MISS %u", shots, misses);
+    if (locked) {
+      oled.fillRect(80, 0, 48, 9, SSD1306_WHITE);
+      oled.setTextColor(SSD1306_BLACK);
+      oled.setCursor(83, 1);
+      oled.print("LOCKED");
+      oled.setTextColor(SSD1306_WHITE);
+    }
+  }
+  if (phase != PH_IDLE) {  // one box per body: filled = still hiding, X = out, C = covered
+    for (int i = 0; i < MAX_BODIES; i++) {
+      auto& b = bodies[i];
+      if (!b.used) continue;
+      int x = i * 32, y = 52;
+      oled.setCursor(x, y + 2);
+      oled.print(i);
+      if (b.alive) {
+        oled.fillRect(x + 8, y, 18, 12, SSD1306_WHITE);
+        if (b.covered) {
+          oled.setTextColor(SSD1306_BLACK);
+          oled.setCursor(x + 14, y + 2);
+          oled.print("C");
+          oled.setTextColor(SSD1306_WHITE);
+        }
+      } else {
+        oled.drawRect(x + 8, y, 18, 12, SSD1306_WHITE);
+        oled.drawLine(x + 8, y, x + 25, y + 11, SSD1306_WHITE);
+        oled.drawLine(x + 25, y, x + 8, y + 11, SSD1306_WHITE);
+      }
+    }
+  }
+  oled.display();
+}
+
 void blaster_setup() {
   Serial.println("[blaster] boot");
   load();
   hw_begin();
   radio_begin(true);
+  oledBegin();
   web.on("/", [] {
     web.send_P(200, "text/html", index_html, index_html_end - index_html - 1);  // txt embed adds a trailing 0
   });
@@ -592,6 +733,7 @@ void blaster_loop() {
   else if (phase == PH_HUNT) p = PIX_LIVE;
   else if (phase == PH_REVEAL) p = PIX_REVEAL;
   hw_pixel(p);
+  oledUpdate(now);
 
   static uint32_t lastLog;
   if (now - lastLog >= 5000) {
