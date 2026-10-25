@@ -1,7 +1,7 @@
 // Part tests with the real drivers. Results go in docs/bench-results.md.
 //   bench_body:    prints every IR frame, TSOP edges and the LDR once a second.
 //   bench_blaster: trigger fires a shot; serial commands below.
-// Both: "snd N" plays sound N (0 beep .. 7 bell), "pix N" sets pixel state N (0 off .. 8 locked).
+// Both: "snd N" plays sound N (0 beep .. 8 go), "pix N" sets pixel state N (0 off .. 9 go).
 #include <Arduino.h>
 #include "hw.h"
 #include "config.h"
@@ -26,8 +26,8 @@ void loop() {
 
   String c;
   if (hw_cmd(c)) {
-    if (c.startsWith("snd ")) hw_sound((Snd)constrain(c.substring(4).toInt(), 0, SND_BELL));
-    else if (c.startsWith("pix ")) hw_pixel((Pix)constrain(c.substring(4).toInt(), 0, PIX_LOCKED));
+    if (c.startsWith("snd ")) hw_sound((Snd)constrain(c.substring(4).toInt(), 0, SND_GO));
+    else if (c.startsWith("pix ")) hw_pixel((Pix)constrain(c.substring(4).toInt(), 0, PIX_GO));
     else if (c == "zero") count = 0;
 #if defined(ROLE_BLASTER)
     else if (c.startsWith("burst ")) {

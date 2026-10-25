@@ -24,7 +24,7 @@ static uint32_t missedSpotMs;
 static uint8_t hitBy = HIT_NONE;
 static uint32_t fastPingUntil;
 
-static uint32_t lastWhistle, lastBeep;
+static uint32_t lastWhistle, lastBeep, hideStart;
 
 static void setState(BodyState s) {
   state = s;
@@ -54,6 +54,8 @@ static void startHide(const HideStartMsg& h, uint32_t now) {
   missedSpotMs = 0;
   hitBy = HIT_NONE;
   lastBeep = 0;
+  hideStart = now;
+  hw_sound(SND_GO);
   setState(BS_HIDE);
 }
 
@@ -194,6 +196,7 @@ void body_loop() {
 
   Pix p = PIX_OFF;  // hunting and alive: dark, never gives the body away
   if (myId < 0) p = PIX_IDLE;
+  else if (state == BS_HIDE && now - hideStart < 1500) p = PIX_GO;
   else if (state == BS_HIDE && lastBeep && now - lastBeep < 120) p = PIX_TICK;
   else if (state == BS_HIDE && dark) p = PIX_DARK;  // otherwise dark, so no glow under fresh paint
   else if (state == BS_HUNT && covered) p = PIX_COVERED;

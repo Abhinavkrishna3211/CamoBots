@@ -6,8 +6,8 @@
 // Real builds drive the TSOP, LDR, IR LED (RMT), speaker (LEDC) and RGB LED.
 // All timings here are first guesses: tune them on the bench (docs/bench-results.md).
 
-static const char* PIX_NAME[] = {"off", "idle", "tick", "dark", "covered", "captured", "reveal", "live", "locked"};
-static const char* SND_NAME[] = {"beep", "whistle", "taunt", "fanfare", "buzz", "celebrate", "fire", "bell"};
+static const char* PIX_NAME[] = {"off", "idle", "tick", "dark", "covered", "captured", "reveal", "live", "locked", "go"};
+static const char* SND_NAME[] = {"beep", "whistle", "taunt", "fanfare", "buzz", "celebrate", "fire", "bell", "go"};
 
 static Pix pix = PIX_OFF;
 static int irHit = -1;
@@ -57,7 +57,8 @@ static const Step S_FANFARE[] = {{523, 523, 120}, {659, 659, 120}, {784, 784, 12
 static const Step S_BUZZ[] = {{180, 180, 400}, {}};
 static const Step S_CELEBRATE[] = {{1047, 1047, 80}, {1319, 1319, 80}, {1568, 1568, 80}, {2093, 2093, 200}, {}};
 static const Step S_FIRE[] = {{3000, 800, 90}, {}};
-static const Step* const SOUNDS[] = {S_BEEP, nullptr, S_TAUNT, S_FANFARE, S_BUZZ, S_CELEBRATE, S_FIRE, nullptr};
+static const Step S_GO[] = {{880, 880, 150}, {0, 0, 350}, {880, 880, 150}, {0, 0, 350}, {1760, 1760, 600}, {}};  // ready, set, GO
+static const Step* const SOUNDS[] = {S_BEEP, nullptr, S_TAUNT, S_FANFARE, S_BUZZ, S_CELEBRATE, S_FIRE, nullptr, S_GO};
 #define SPK_CH 0
 static const Step* step;
 static uint32_t stepAt;
@@ -72,10 +73,10 @@ struct Clip { const uint8_t* pcm; uint16_t n; };
 #include "whistle_pcm.h"  // our own recorded wolf whistle
 #include "splat_pcm.h"
 static const Clip CLIPS[] = {{}, {WHISTLE_PCM, sizeof WHISTLE_PCM}, {SPLAT_PCM, sizeof SPLAT_PCM}, {}, {}, {}, {},
-                             {BELL_PCM, sizeof BELL_PCM}};
+                             {BELL_PCM, sizeof BELL_PCM}, {}};
 #else
 #include "paintball_pcm.h"
-static const Clip CLIPS[] = {{}, {}, {}, {}, {}, {}, {PAINTBALL_PCM, sizeof PAINTBALL_PCM}, {BELL_PCM, sizeof BELL_PCM}};
+static const Clip CLIPS[] = {{}, {}, {}, {}, {}, {}, {PAINTBALL_PCM, sizeof PAINTBALL_PCM}, {BELL_PCM, sizeof BELL_PCM}, {}};
 #endif
 static const uint8_t* volatile clipPcm;
 static volatile uint16_t clipN, clipI;
@@ -183,6 +184,7 @@ static void pixelUpdate(uint32_t now) {
   switch (pix) {
     case PIX_IDLE: rgb(0, 40, 30); break;
     case PIX_TICK: rgb(255, 255, 255); break;  // white flash with each hide tick
+    case PIX_GO: rgb(0, 255, 0); break;  // hide just started: go paint
     case PIX_DARK: (now / 150) % 2 ? rgb(255, 120, 0) : rgb(0, 0, 0); break;
     case PIX_COVERED: (now / 250) % 2 ? rgb(255, 120, 0) : rgb(0, 0, 0); break;
     case PIX_CAPTURED: (now / 200) % 2 ? rgb(255, 0, 0) : rgb(0, 0, 0); break;

@@ -146,6 +146,7 @@ static void startRound(uint32_t now) {
     sendHideStart(i, now);
   }
   event(EV_ROUND);
+  hw_sound(SND_GO);
 }
 
 static void scoreRound(uint32_t endMs) {
