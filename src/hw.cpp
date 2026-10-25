@@ -52,24 +52,55 @@ static void hwRealUpdate(uint32_t) {}
 // ---- Sound: a tiny player for glides. f0 -> f1 Hz over ms, f0 = 0 is a rest.
 struct Step { uint16_t f0, f1, ms; };
 static const Step S_BEEP[] = {{2000, 2000, 60}, {}};
-static const Step S_WHISTLE[] = {{1800, 3400, 180}, {3400, 2000, 220}, {0, 0, 80}, {1800, 3400, 180}, {3400, 1500, 300}, {}};
 static const Step S_TAUNT[] = {{600, 500, 150}, {0, 0, 40}, {550, 450, 150}, {0, 0, 40}, {500, 200, 500}, {}};
 static const Step S_FANFARE[] = {{523, 523, 120}, {659, 659, 120}, {784, 784, 120}, {1047, 1047, 350}, {}};
 static const Step S_BUZZ[] = {{180, 180, 400}, {}};
 static const Step S_CELEBRATE[] = {{1047, 1047, 80}, {1319, 1319, 80}, {1568, 1568, 80}, {2093, 2093, 200}, {}};
 static const Step S_FIRE[] = {{3000, 800, 90}, {}};
-static const Step* SOUNDS[] = {S_BEEP, S_WHISTLE, S_TAUNT, S_FANFARE, S_BUZZ, S_CELEBRATE, S_FIRE};
+static const Step* const SOUNDS[] = {S_BEEP, nullptr, S_TAUNT, S_FANFARE, S_BUZZ, S_CELEBRATE, S_FIRE};
 #define SPK_CH 0
 static const Step* step;
 static uint32_t stepAt;
 static uint16_t lastFreq;
 
+// Clips play as PCM: a 78 kHz PWM carrier whose duty follows 16 kHz samples. The speaker can't
+// follow 78 kHz and only moves with the audio. Each role builds in only the clips it plays.
+struct Clip { const uint8_t* pcm; uint16_t n; };
+#if defined(ROLE_BODY)
+#include "whistle_pcm.h"  // our own recorded wolf whistle
+#include "splat_pcm.h"
+static const Clip CLIPS[] = {{}, {WHISTLE_PCM, sizeof WHISTLE_PCM}, {SPLAT_PCM, sizeof SPLAT_PCM}, {}, {}, {}, {}};
+#else
+#include "paintball_pcm.h"
+static const Clip CLIPS[] = {{}, {}, {}, {}, {}, {}, {PAINTBALL_PCM, sizeof PAINTBALL_PCM}};
+#endif
+static const Clip* clipPending;
+
 void hw_sound(Snd s) {
-  step = SOUNDS[s];
+  step = CLIPS[s].pcm ? nullptr : SOUNDS[s];
   stepAt = millis();
+  clipPending = CLIPS[s].pcm ? &CLIPS[s] : nullptr;
+}
+
+// ponytail: blocks loop() for the clip (0.2-0.8 s; the IR ISR still runs); move to a timer ISR if that matters.
+static void playClip(const Clip& c) {
+  ledcSetup(SPK_CH, 78125, 8);
+  uint32_t t = micros();
+  for (uint16_t i = 0; i < c.n; i++) {
+    ledcWrite(SPK_CH, c.pcm[i]);
+    t += 1000000 / 16000;
+    while ((int32_t)(micros() - t) < 0) {}
+  }
+  ledcWrite(SPK_CH, 0);
+  lastFreq = 0;
 }
 
 static void soundUpdate(uint32_t now) {
+  if (clipPending) {
+    const Clip* c = clipPending;
+    clipPending = nullptr;
+    playClip(*c);
+  }
   uint16_t f = 0;
   while (step && step->ms && now - stepAt >= step->ms) {
     stepAt += step->ms;
