@@ -197,7 +197,7 @@ void body_loop() {
 
   Pix p = PIX_OFF;  // hunting and alive: dark, never gives the body away
   if (myId < 0) p = PIX_IDLE;
-  else if (state == BS_HIDE) p = dark ? PIX_DARK : PIX_HIDE;
+  else if (state == BS_HIDE && dark) p = PIX_DARK;  // otherwise dark, so no glow under fresh paint
   else if (state == BS_HUNT && covered) p = PIX_COVERED;
   else if (state == BS_CAPTURED) p = PIX_CAPTURED;
   else if (state == BS_REVEAL) p = PIX_REVEAL;

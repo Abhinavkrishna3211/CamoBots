@@ -170,11 +170,6 @@ static void pixelUpdate(uint32_t now) {
   last = now;
   switch (pix) {
     case PIX_IDLE: rgb(0, 40, 30); break;
-    case PIX_HIDE: {  // blue, slow triangle pulse
-      uint8_t t = now / 8;
-      rgb(0, 0, 40 + (t < 128 ? t : 255 - t) * 215 / 127);
-      break;
-    }
     case PIX_DARK: (now / 150) % 2 ? rgb(255, 120, 0) : rgb(0, 0, 0); break;
     case PIX_COVERED: (now / 250) % 2 ? rgb(255, 120, 0) : rgb(0, 0, 0); break;
     case PIX_CAPTURED: (now / 200) % 2 ? rgb(255, 0, 0) : rgb(0, 0, 0); break;
