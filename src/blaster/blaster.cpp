@@ -518,7 +518,7 @@ static bool haveOled;
 
 static void oledBegin() {
   Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
-  Wire.setClock(400000);
+  Wire.setClock(100000);  // 100 kHz copes with long jumper wires
   Wire.beginTransmission(0x3C);
   haveOled = Wire.endTransmission() == 0 && oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   Serial.printf("[blaster] OLED %s\n", haveOled ? "found" : "not found, skipped");

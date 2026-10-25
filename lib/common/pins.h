@@ -19,6 +19,6 @@
 #define PIN_IR_LED     2    // D1, 38 kHz LEDC into transistor base
 #define PIN_MUZZLE_LED 3    // D2, orange LED at the barrel tip, flashes on each shot
 #define PIN_BLASTER_SPK 4   // D3
-#define PIN_OLED_SDA   5    // D4
+#define PIN_OLED_SDA   5    // D4; OLED VCC on 5V (blank on 3V3)
 #define PIN_OLED_SCL   6    // D5
 // D6/D7 (GPIO43/44) left free for UART.
