@@ -40,6 +40,9 @@ static uint16_t shots, misses;
 static uint8_t hp;
 static int8_t killBody = -1;  // last capture, shown big on the OLED
 static uint32_t killAt;
+static uint8_t combo;  // captures in a row, each within COMBO_MS of the last
+static uint32_t lastOneAt, tickAt;  // one body left; last countdown tick
+#define COMBO_MS 15000
 
 // Session: names, totals, the last round's result
 #define NAME_LEN 12
@@ -135,6 +138,8 @@ static void startRound(uint32_t now) {
   hp = cfg.hp;
   shotPending = false;
   lockUntil = missAt = 0;
+  combo = 0;
+  lastOneAt = 0;
   roundFirst = session.nextFirst;
   for (int i = 0; i < MAX_BODIES; i++) {
     auto& b = bodies[i];
@@ -210,7 +215,22 @@ static void endRound(uint32_t now, bool seekerWon, const char* why, bool scored 
   lastWhy = why;
   if (scored) scoreRound(endMs);
   event(EV_END, -1, seekerWon);
-  hw_sound(seekerWon ? SND_CELEBRATE : SND_FANFARE);
+  if (!(seekerWon && killAt == now)) hw_sound(seekerWon ? SND_CELEBRATE : SND_FANFARE);  // else keep the capture jingle
+}
+
+static int bodiesLeft() {
+  int n = 0;
+  for (auto& b : bodies) n += b.used && b.alive;
+  return n;
+}
+
+// True once per round when the hunt is down to its last body (only with 2+ bodies).
+static bool lastOne(uint32_t now) {
+  int used = 0;
+  for (auto& b : bodies) used += b.used;
+  if (lastOneAt || used < 2 || bodiesLeft() != 1) return false;
+  lastOneAt = now;
+  return true;
 }
 
 static void checkAllFound(uint32_t now) {
@@ -236,9 +256,11 @@ static void found(int id, uint8_t shooter, uint32_t now) {
   if (is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled)) Serial.print(" WHISTLE HUNTER");
   Serial.println();
   event(EV_FOUND, id, shooter);
+  combo = combo && now - killAt <= COMBO_MS ? combo + 1 : 1;
   killBody = id;
   killAt = now;
-  hw_sound(SND_CELEBRATE);
+  bool last = lastOne(now);
+  hw_sound(combo > 1 ? SND_COMBO : last ? SND_LAST : SND_CELEBRATE);
   checkAllFound(now);
 }
 
@@ -262,6 +284,7 @@ static void setCovered(int id, bool on, uint8_t strikes, bool out, uint32_t now)
     closeCover(b, t);
     Serial.printf("[game] body %d STRUCK OUT\n", id);
     event(EV_OUT, id);
+    if (lastOne(now)) hw_sound(SND_LAST);
     checkAllFound(now);
   }
 }
@@ -521,6 +544,8 @@ static const uint16_t WH = SSD1306_WHITE, BK = SSD1306_BLACK;
 static const uint8_t HEART[] PROGMEM = {0x6C, 0xFE, 0xFE, 0x7C, 0x38, 0x10};
 static const uint8_t HEART_EMPTY[] PROGMEM = {0x6C, 0x92, 0x82, 0x44, 0x28, 0x10};
 static const uint8_t PADLOCK[] PROGMEM = {0x38, 0x44, 0x44, 0xFE, 0xEE, 0xEE, 0xFE};
+static const uint8_t PAWN[] PROGMEM = {0x70, 0x70, 0x00, 0xF8, 0x70, 0x70, 0x50, 0x50};  // a hider, 5x8
+static const uint8_t CROSSHAIR[] PROGMEM = {0x10, 0x7C, 0x54, 0xEE, 0x54, 0x7C, 0x10};  // the seeker, 7x7
 
 static void oledBegin() {
   Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
@@ -686,11 +711,22 @@ static void drawHunt(uint32_t now, bool& inv) {
   }
   int32_t left = max<int32_t>(0, phaseEnd - now) / 1000;
   bool panic = left < 30, locked = (int32_t)(now - lockUntil) < 0;
-  char r[8];
-  snprintf(r, sizeof r, "R%u", session.round + 1);
-  bar(panic ? ((now / 250) % 2 ? "PANIC!" : "") : locked ? "LOCKED" : "HUNT", r);
+  // HUD: one figure per hider (crossed out once caught), the state, then seeker HP and a crosshair
+  bar("", "");
+  int x = 2;
+  for (auto& b : bodies) {
+    if (!b.used) continue;
+    oled.drawBitmap(x, 1, PAWN, 5, 8, BK);
+    if (!b.alive) oled.drawLine(x - 1, 8, x + 5, 1, WH);
+    x += 8;
+  }
+  oled.setTextColor(BK);
+  oled.setCursor(x + 2, 1);
+  oled.print(panic ? ((now / 250) % 2 ? "PANIC!" : "") : locked ? "LOCKED" : "HUNT");
+  oled.setTextColor(WH);
+  oled.drawBitmap(120, 1, CROSSHAIR, 7, 7, BK);
   for (int i = 0; i < cfg.hp; i++)
-    oled.drawBitmap(64 - cfg.hp * 9 / 2 + i * 9, 2, i < hp ? HEART : HEART_EMPTY, 7, 6, BK);
+    oled.drawBitmap(118 - (cfg.hp - i) * 8, 2, i < hp ? HEART : HEART_EMPTY, 7, 6, BK);
 
   char t[8];
   snprintf(t, sizeof t, "%ld:%02ld", (long)left / 60, (long)left % 60);
@@ -700,6 +736,8 @@ static void drawHunt(uint32_t now, bool& inv) {
 
   if (missAt && now - missAt < 900) {
     ctext("MISS!", 36, 2, false, ((int)(now / 40 % 3) - 1) * 3);  // shake
+  } else if (lastOneAt && now - lastOneAt < KILL_MS + 2500) {
+    if ((now / 200) % 2) ctext("1 LEFT!", 36, 2);
   } else if (locked) {
     oled.setCursor(4, 40);
     oled.print("RELOAD");
@@ -716,7 +754,7 @@ static void drawHunt(uint32_t now, bool& inv) {
     ctext("AIM AND FIRE", 40, 1);
   }
   bodyRow(now, 52);
-  inv = shots && now - shotAt < 90;  // muzzle flash
+  inv = (shots && now - shotAt < 90) || (tickAt && now - tickAt < 80);  // muzzle flash, countdown tick
 }
 
 static void drawKill(uint32_t now, bool& inv) {
@@ -729,20 +767,20 @@ static void drawKill(uint32_t now, bool& inv) {
       oled.drawLine(64 + c * r0, 32 + s * r0, 64 + c * r1, 32 + s * r1, WH);
     }
     oled.fillRect(0, 19, 128, 26, BK);
-    ctext("GOTCHA!", 21, 3);
+    ctext(combo > 2 ? "TRIPLE!" : combo > 1 ? "DOUBLE!" : "GOTCHA!", 21, 3);
     inv = t < 320 && (t / 80) % 2 == 0;
     return;
   }
-  ctext("GOTCHA!", 0, 2);
+  ctext(combo > 2 ? "TRIPLE!" : combo > 1 ? "DOUBLE!" : "GOTCHA!", 0, 2);
   char s[24];
   snprintf(s, sizeof s, "%.10s FOUND %lu:%02lu", hiderName(killBody), b.foundAt / 60000, b.foundAt / 1000 % 60);
   ctext(s, 18, 1);
   snprintf(s, sizeof s, "+%d", capturePts(b) * (int)min<uint32_t>(t - 600, 600) / 600);  // points roll up
   ctext(s, 28, 2);
   if (is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled) && (now / 200) % 2) ctext("WHISTLE HUNTER +25", 46, 1);
-  int left = 0;
-  for (auto& o : bodies) left += o.used && o.alive;
-  if (left) snprintf(s, sizeof s, "%d LEFT TO FIND", left);
+  int left = bodiesLeft();
+  if (left == 1 && lastOneAt) snprintf(s, sizeof s, (now / 250) % 2 ? "LAST ONE!" : "");
+  else if (left) snprintf(s, sizeof s, "%d LEFT TO FIND", left);
   else snprintf(s, sizeof s, "CLEAN SWEEP! +%d", PTS_CLEAN_SWEEP);
   ctext(s, 56, 1);
 }
@@ -852,7 +890,15 @@ void blaster_loop() {
         hw_sound(SND_BELL);
       }
       break;
-    case PH_HUNT:
+    case PH_HUNT: {
+      int32_t left = phaseEnd - now;
+      static int32_t lastK;
+      int32_t k = left <= 3000 ? left / 500 : 100 + left / 1000;  // last 10 s: tick each second, twice a second at the end
+      if (left > 0 && left <= 10000 && k != lastK) {
+        lastK = k;
+        tickAt = now;
+        if (now - shotAt > 300) hw_sound(SND_TICK);  // let the shot sound finish
+      }
       if (fired) {
         if ((int32_t)(now - lockUntil) < 0 || shotPending) {
           Serial.println("[game] trigger locked");
@@ -885,6 +931,7 @@ void blaster_loop() {
       }
       if ((int32_t)(now - phaseEnd) >= 0) endRound(now, false, "time up");
       break;
+    }
     case PH_REVEAL:
       if ((int32_t)(now - phaseEnd) >= 0) setPhase(PH_IDLE, now, 0);
       break;

@@ -6,8 +6,8 @@ Inspired by the game Meccha Chameleon. Not affiliated with it, and it uses none 
 
 ## How it plays
 
-1. **Hide:** a timed countdown. Hiders place their painted bodies. The blaster is locked.
-2. **Hunt:** the blaster goes live. Bodies whistle every so often, giving away their position.
+1. **Hide:** a start tone and a green flash, then a timed countdown. Hiders paint and place their bodies. The blaster is locked.
+2. **Hunt:** a bell rings on every device and the blaster goes live. The last 10 s tick down on the blaster. Bodies whistle every so often, giving away their position.
 3. **Shoot:** an IR hit captures a body. A miss locks the trigger for a few seconds.
 4. **Reveal:** surviving bodies whistle and flash a rainbow. Points are tallied and roles rotate.
 
@@ -22,7 +22,7 @@ All boards are Seeed Studio XIAO ESP32-S3.
 | Body (x2) | TSOP38238 IR receiver, LDR, speaker on an NPN driver, common-anode RGB LED, 400-500 mAh LiPo, slide switch |
 | Blaster (x1) | 940 nm IR LED on a transistor, orange muzzle-flash LED, trigger button, speaker, optional 0.96" OLED, 2200 mAh Li-ion |
 
-The optional OLED on the blaster runs arcade-style screens: a title and high scores between rounds, a hide countdown, then the timer, HP hearts, shots and a chameleon for each body during the hunt. After each capture it shows who was caught, the points earned and how many bodies are left. Power it from 5V; on 3V3 it stays blank. If no OLED is wired, the blaster skips it.
+The optional OLED on the blaster runs arcade-style screens: a title and high scores between rounds, a hide countdown, then during the hunt a top bar with a figure for each hider (crossed out once caught) and the seeker's HP hearts, plus the timer and shots. After each capture it shows who was caught, the points earned and how many bodies are left. Two captures within 15 s show DOUBLE!, and the last body left gets its own alert. Power it from 5V; on 3V3 it stays blank. If no OLED is wired, the blaster skips it.
 
 Between rounds, pulling the trigger starts the next round once a body has joined. The game page can start one too.
 

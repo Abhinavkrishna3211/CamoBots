@@ -304,8 +304,11 @@ function seq(notes,step=.09,type,v){notes.forEach((n,i)=>{if(n)tone(mid(n),step*
 const SFX={
   coin(){tone(988,.08);tone(1319,.4,.08)},
   blip(){tone(740,.05,0,"square",.05)},
-  start(){seq([60,64,67,72,64,67,72,76,67,72,76,79],.07)},
-  hunt(){for(let i=0;i<3;i++){tone(880,.11,i*.24,"sawtooth",.05);tone(587,.11,i*.24+.12,"sawtooth",.05)}},
+  start(){tone(880,.15);tone(880,.15,.5);tone(1760,.6,1)},  // ready, set, GO: same as the bots
+  hunt(){for(let i=0;i<6;i++)[[1,.9,.12],[2,.6,.06],[2.76,.45,.05],[3.9,.3,.03],[5.4,.18,.02]]  // alarm bell rung six times
+    .forEach(([r,d,v])=>tone(1050*r*(1+.004*(i%2)),d,i*.16,"sine",v))},
+  combo(){seq([72,76,79,84,79,84,88,0,88],.06)},
+  last(){seq([69,0,69,0,64,0,72,72,72,72],.1,"sawtooth",.06)},
   tick(){tone(1175,.04,0,"square",.04)},
   panic(){tone(1568,.05,0,"square",.05);tone(1568,.05,.12,"square",.03)},
   whistle(){tone(1300,.16,0,"sine",.1,2300);tone(2100,.32,.2,"sine",.1,1000)},
@@ -325,6 +328,7 @@ function sfx(k){try{SFX[k]&&SFX[k]()}catch(e){}}
 /* ---------- state ---------- */
 let S=null,mock=null,fails=0,connected=false,lastEv=-1,lastSec=-1,view="live",setupDirty=false,form=null;
 const lastWh={},lastWhFeed={},feed=[];
+let combo=0,lastFound=0,lastOne=false;  // captures in a row; last-body alert shown
 const seekerOf=(k,f)=>((f==null?S.first:f)+k)%S.np;
 const hiderOf=(i,f)=>((f==null?S.first:f)+S.ns+i)%S.np;
 const nm=p=>(S.names[p]||"P"+(p+1));
@@ -372,20 +376,25 @@ function onEvent(e,quiet){
   let msg="",snd=k;
   switch(k){
     case"join":msg=`BODY ${b+1} JOINED THE GAME`;break;
-    case"round":msg=`ROUND ${S.round+1}: PAINT & HIDE!`;snd="start";for(const i in lastWh)delete lastWh[i];break;
+    case"round":msg=`ROUND ${S.round+1}: PAINT & HIDE!`;snd="start";for(const i in lastWh)delete lastWh[i];combo=0;lastOne=false;break;
     case"hunt":msg="THE HUNT IS ON!";break;
     case"shot":if(!quiet)fx("flash");break;
     case"miss":msg=`${SK} MISSED! RELOADING`;if(!quiet){pop("MISS!","#ff3f5a");shake()}break;
     case"found":{const wh=lastWh[b]!=null&&t-lastWh[b]<=10000,pts=100+Math.max(0,Math.floor((S.cfg.hunt*1000-t)/1000))+(wh?25:0),
         left=S.bodies.filter(x=>x.alive).length;
-      msg=`${SK} SPOTTED ${H} AT ${elapsed(t)} +${pts}${wh?" · WHISTLE HUNTER +25":""} · ${left?left+" LEFT":"CLEAN SWEEP +100"}`;
-      if(!quiet){splat(col,"SPOTTED!");setTimeout(()=>pop(`${SK} +${pts}`,"#ffd23f"),700);if(left)setTimeout(()=>pop(`${left} LEFT`,"#fff"),1700)}break}
+      combo=combo&&t-lastFound<=15000?combo+1:1;lastFound=t;
+      const tag=combo>2?"TRIPLE!":combo>1?"DOUBLE!":"SPOTTED!",one=left===1&&!lastOne&&S.bodies.length>1;if(one)lastOne=true;
+      msg=`${SK} SPOTTED ${H} AT ${elapsed(t)} +${pts}${wh?" · WHISTLE HUNTER +25":""}${combo>1?" · "+tag:""} · ${left?left+" LEFT":"CLEAN SWEEP +100"}`;
+      if(combo>1)snd="combo";else if(one)snd="last";
+      if(!quiet){splat(col,tag);setTimeout(()=>pop(`${SK} +${pts}`,"#ffd23f"),700);if(left)setTimeout(()=>pop(one?"LAST ONE!":`${left} LEFT`,one?"#ff3f5a":"#fff"),1700)}break}
     case"whistle":lastWh[b]=t;
       if(lastWhFeed[b]==null||t-lastWhFeed[b]>6000||t<lastWhFeed[b]){lastWhFeed[b]=t;msg=`${H} WHISTLED!`}
       if(!quiet)bubble(b,"FWEET!");break;
     case"cover":msg=`${H} DUCKED UNDER COVER! -20 (STRIKE ${w})`;if(!quiet)bubble(b,"-20");break;
     case"clear":msg=`${H} IS BACK IN THE OPEN`;break;
-    case"out":msg=`${H} STRUCK OUT! TOO MUCH HIDING`;if(!quiet)splat(col,"OUT!");break;
+    case"out":{msg=`${H} STRUCK OUT! TOO MUCH HIDING`;if(!quiet)splat(col,"OUT!");
+      const one=S.bodies.filter(x=>x.alive).length===1&&!lastOne&&S.bodies.length>1;
+      if(one){lastOne=true;snd="last";if(!quiet)setTimeout(()=>pop("LAST ONE!","#ff3f5a"),1200)}break}
     case"end":msg=w?"SEEKER WINS THE ROUND!":"HIDERS WIN THE ROUND!";snd=w?"seekerWin":"hidersWin";
       if(!quiet&&S.last&&S.why!=="stopped")setTimeout(showReveal,500);break;
   }

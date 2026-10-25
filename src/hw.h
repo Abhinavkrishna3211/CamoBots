@@ -5,7 +5,8 @@
 
 enum Pix : uint8_t { PIX_OFF, PIX_IDLE, PIX_TICK, PIX_DARK, PIX_COVERED, PIX_CAPTURED, PIX_REVEAL,
                      PIX_LIVE, PIX_LOCKED, PIX_GO };
-enum Snd : uint8_t { SND_BEEP, SND_WHISTLE, SND_TAUNT, SND_FANFARE, SND_BUZZ, SND_CELEBRATE, SND_FIRE, SND_BELL, SND_GO };
+enum Snd : uint8_t { SND_BEEP, SND_WHISTLE, SND_TAUNT, SND_FANFARE, SND_BUZZ, SND_CELEBRATE, SND_FIRE, SND_BELL, SND_GO,
+                      SND_TICK, SND_COMBO, SND_LAST };
 
 void hw_begin();
 void hw_update();              // call every loop: animations, serial commands
