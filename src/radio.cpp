@@ -46,7 +46,7 @@ void radio_begin(bool ap) {
   WiFi.persistent(false);
   if (ap) {
     WiFi.mode(WIFI_AP);
-    WiFi.softAP("CamoBots", nullptr, WIFI_CHANNEL);
+    WiFi.softAP("CamoBots", nullptr, WIFI_CHANNEL, 0, 10);  // 10 phones, the ESP32 limit
   } else {
     WiFi.mode(WIFI_STA);
     // A board with a router saved from an old sketch keeps scanning and hops off our channel.
