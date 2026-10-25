@@ -3,7 +3,7 @@
 // real builds drive the parts.
 #include <Arduino.h>
 
-enum Pix : uint8_t { PIX_OFF, PIX_IDLE, PIX_HIDE, PIX_DARK, PIX_COVERED, PIX_CAPTURED, PIX_REVEAL,
+enum Pix : uint8_t { PIX_OFF, PIX_IDLE, PIX_TICK, PIX_DARK, PIX_COVERED, PIX_CAPTURED, PIX_REVEAL,
                      PIX_LIVE, PIX_LOCKED };
 enum Snd : uint8_t { SND_BEEP, SND_WHISTLE, SND_TAUNT, SND_FANFARE, SND_BUZZ, SND_CELEBRATE, SND_FIRE };
 

@@ -6,7 +6,7 @@
 // Real builds drive the TSOP, LDR, IR LED (RMT), speaker (LEDC) and RGB LED.
 // All timings here are first guesses: tune them on the bench (docs/bench-results.md).
 
-static const char* PIX_NAME[] = {"off", "idle", "hide", "dark", "covered", "captured", "reveal", "live", "locked"};
+static const char* PIX_NAME[] = {"off", "idle", "tick", "dark", "covered", "captured", "reveal", "live", "locked"};
 static const char* SND_NAME[] = {"beep", "whistle", "taunt", "fanfare", "buzz", "celebrate", "fire"};
 
 static Pix pix = PIX_OFF;
@@ -51,7 +51,7 @@ static void hwRealUpdate(uint32_t) {}
 
 // ---- Sound: a tiny player for glides. f0 -> f1 Hz over ms, f0 = 0 is a rest.
 struct Step { uint16_t f0, f1, ms; };
-static const Step S_BEEP[] = {{2000, 2000, 60}, {}};
+static const Step S_BEEP[] = {{2500, 2500, 30}, {}};  // short, like a clock tick
 static const Step S_TAUNT[] = {{600, 500, 150}, {0, 0, 40}, {550, 450, 150}, {0, 0, 40}, {500, 200, 500}, {}};
 static const Step S_FANFARE[] = {{523, 523, 120}, {659, 659, 120}, {784, 784, 120}, {1047, 1047, 350}, {}};
 static const Step S_BUZZ[] = {{180, 180, 400}, {}};
@@ -170,6 +170,7 @@ static void pixelUpdate(uint32_t now) {
   last = now;
   switch (pix) {
     case PIX_IDLE: rgb(0, 40, 30); break;
+    case PIX_TICK: rgb(255, 255, 255); break;  // white flash with each hide tick
     case PIX_DARK: (now / 150) % 2 ? rgb(255, 120, 0) : rgb(0, 0, 0); break;
     case PIX_COVERED: (now / 250) % 2 ? rgb(255, 120, 0) : rgb(0, 0, 0); break;
     case PIX_CAPTURED: (now / 200) % 2 ? rgb(255, 0, 0) : rgb(0, 0, 0); break;

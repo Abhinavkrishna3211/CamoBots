@@ -114,14 +114,10 @@ static void hideTick(uint32_t now) {
   int32_t left = hideEnd - now;
   if (left <= 0) return startHunt(now);
   uint16_t l = hw_ldr();
-  if (left <= 10000) {
-    dark = l < DARK_ADC;
-    // Countdown beeps: once a second, twice a second in the last 3 s.
-    uint32_t gap = left <= 3000 ? 500 : 1000;
-    if (now - lastBeep >= gap) {
-      lastBeep = now;
-      hw_sound(SND_BEEP);
-    }
+  if (left <= 10000) dark = l < DARK_ADC;
+  if (left <= 5000 && now - lastBeep >= 1000) {  // last 5 s: tick and flash once a second
+    lastBeep = now;
+    hw_sound(SND_BEEP);
   }
   static uint32_t lastSample;
   if (left <= 2000 && nSamples < 20 && now - lastSample >= 100) {
@@ -197,6 +193,7 @@ void body_loop() {
 
   Pix p = PIX_OFF;  // hunting and alive: dark, never gives the body away
   if (myId < 0) p = PIX_IDLE;
+  else if (state == BS_HIDE && lastBeep && now - lastBeep < 120) p = PIX_TICK;
   else if (state == BS_HIDE && dark) p = PIX_DARK;  // otherwise dark, so no glow under fresh paint
   else if (state == BS_HUNT && covered) p = PIX_COVERED;
   else if (state == BS_CAPTURED) p = PIX_CAPTURED;
