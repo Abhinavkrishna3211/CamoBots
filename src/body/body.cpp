@@ -68,6 +68,7 @@ static void startHunt(uint32_t now) {
   coverCheck = !dark;
   Serial.printf("[body %d] hunt, baseline %u%s\n", myId, baseline, dark ? " TOO DARK, cover check off" : "");
   lastWhistle = now;
+  hw_sound(SND_BELL);
   setState(BS_HUNT);
 }
 

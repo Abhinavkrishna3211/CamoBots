@@ -7,7 +7,7 @@
 // All timings here are first guesses: tune them on the bench (docs/bench-results.md).
 
 static const char* PIX_NAME[] = {"off", "idle", "tick", "dark", "covered", "captured", "reveal", "live", "locked"};
-static const char* SND_NAME[] = {"beep", "whistle", "taunt", "fanfare", "buzz", "celebrate", "fire"};
+static const char* SND_NAME[] = {"beep", "whistle", "taunt", "fanfare", "buzz", "celebrate", "fire", "bell"};
 
 static Pix pix = PIX_OFF;
 static int irHit = -1;
@@ -57,7 +57,7 @@ static const Step S_FANFARE[] = {{523, 523, 120}, {659, 659, 120}, {784, 784, 12
 static const Step S_BUZZ[] = {{180, 180, 400}, {}};
 static const Step S_CELEBRATE[] = {{1047, 1047, 80}, {1319, 1319, 80}, {1568, 1568, 80}, {2093, 2093, 200}, {}};
 static const Step S_FIRE[] = {{3000, 800, 90}, {}};
-static const Step* const SOUNDS[] = {S_BEEP, nullptr, S_TAUNT, S_FANFARE, S_BUZZ, S_CELEBRATE, S_FIRE};
+static const Step* const SOUNDS[] = {S_BEEP, nullptr, S_TAUNT, S_FANFARE, S_BUZZ, S_CELEBRATE, S_FIRE, nullptr};
 #define SPK_CH 0
 static const Step* step;
 static uint32_t stepAt;
@@ -65,42 +65,54 @@ static uint16_t lastFreq;
 
 // Clips play as PCM: a 78 kHz PWM carrier whose duty follows 16 kHz samples. The speaker can't
 // follow 78 kHz and only moves with the audio. Each role builds in only the clips it plays.
+// A 16 kHz timer interrupt feeds the samples, so the loop keeps running during a clip.
 struct Clip { const uint8_t* pcm; uint16_t n; };
+#include "bell_pcm.h"  // hunt start, on every device
 #if defined(ROLE_BODY)
 #include "whistle_pcm.h"  // our own recorded wolf whistle
 #include "splat_pcm.h"
-static const Clip CLIPS[] = {{}, {WHISTLE_PCM, sizeof WHISTLE_PCM}, {SPLAT_PCM, sizeof SPLAT_PCM}, {}, {}, {}, {}};
+static const Clip CLIPS[] = {{}, {WHISTLE_PCM, sizeof WHISTLE_PCM}, {SPLAT_PCM, sizeof SPLAT_PCM}, {}, {}, {}, {},
+                             {BELL_PCM, sizeof BELL_PCM}};
 #else
 #include "paintball_pcm.h"
-static const Clip CLIPS[] = {{}, {}, {}, {}, {}, {}, {PAINTBALL_PCM, sizeof PAINTBALL_PCM}};
+static const Clip CLIPS[] = {{}, {}, {}, {}, {}, {}, {PAINTBALL_PCM, sizeof PAINTBALL_PCM}, {BELL_PCM, sizeof BELL_PCM}};
 #endif
-static const Clip* clipPending;
+static const uint8_t* volatile clipPcm;
+static volatile uint16_t clipN, clipI;
 
-void hw_sound(Snd s) {
-  step = CLIPS[s].pcm ? nullptr : SOUNDS[s];
-  stepAt = millis();
-  clipPending = CLIPS[s].pcm ? &CLIPS[s] : nullptr;
+static void clipIsr() {
+  const uint8_t* p = clipPcm;
+  if (!p) return;
+  if (clipI < clipN) {
+    ledcWrite(SPK_CH, p[clipI++]);
+  } else {
+    ledcWrite(SPK_CH, 0);
+    clipPcm = nullptr;
+  }
 }
 
-// ponytail: blocks loop() for the clip (0.2-0.8 s; the IR ISR still runs); move to a timer ISR if that matters.
-static void playClip(const Clip& c) {
+void hw_sound(Snd s) {
+  clipPcm = nullptr;  // a new sound cuts off the old one
+  step = CLIPS[s].pcm ? nullptr : SOUNDS[s];
+  stepAt = millis();
+  lastFreq = 0xFFFF;  // force the tone player to set the channel again
+  if (!CLIPS[s].pcm) return;
   ledcSetup(SPK_CH, 78125, 8);
-  uint32_t t = micros();
-  for (uint16_t i = 0; i < c.n; i++) {
-    ledcWrite(SPK_CH, c.pcm[i]);
-    t += 1000000 / 16000;
-    while ((int32_t)(micros() - t) < 0) {}
-  }
-  ledcWrite(SPK_CH, 0);
   lastFreq = 0;
+  clipI = 0;
+  clipN = CLIPS[s].n;
+  clipPcm = CLIPS[s].pcm;
+}
+
+static void soundBegin() {
+  hw_timer_t* t = timerBegin(1, 5, true);  // 80 MHz / 5 = 16 MHz
+  timerAttachInterrupt(t, clipIsr, true);
+  timerAlarmWrite(t, 1000, true);  // 16 kHz
+  timerAlarmEnable(t);
 }
 
 static void soundUpdate(uint32_t now) {
-  if (clipPending) {
-    const Clip* c = clipPending;
-    clipPending = nullptr;
-    playClip(*c);
-  }
+  if (clipPcm) return;  // the interrupt owns the speaker until the clip ends
   uint16_t f = 0;
   while (step && step->ms && now - stepAt >= step->ms) {
     stepAt += step->ms;
@@ -191,6 +203,7 @@ static void hwRealBegin() {
   ledcSetup(SPK_CH, 2000, 8);
   ledcAttachPin(PIN_BODY_SPK, SPK_CH);
   ledcWriteTone(SPK_CH, 0);
+  soundBegin();
 }
 
 static void hwRealUpdate(uint32_t now) {
@@ -261,6 +274,7 @@ static void hwRealBegin() {
   ledcSetup(SPK_CH, 2000, 8);
   ledcAttachPin(PIN_BLASTER_SPK, SPK_CH);
   ledcWriteTone(SPK_CH, 0);
+  soundBegin();
 }
 
 static void hwRealUpdate(uint32_t now) {

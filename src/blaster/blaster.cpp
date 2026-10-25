@@ -848,6 +848,7 @@ void blaster_loop() {
         for (int i = 0; i < MAX_BODIES; i++)
           if (bodies[i].used) radio_send(bodies[i].mac, MSG_START, &s, sizeof s);
         event(EV_HUNT);
+        hw_sound(SND_BELL);
       }
       break;
     case PH_HUNT:
