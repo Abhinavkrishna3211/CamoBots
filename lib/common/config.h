@@ -8,7 +8,7 @@ struct Config {
   uint16_t huntSec = 180;
   uint16_t whistleSec = 45;     // auto-whistle interval, 0 = off; halves in the last 30 s
   uint16_t missLockMs = 3000;
-  uint8_t revealSec = 5;
+  uint8_t revealSec = 8;        // the OLED shows the winner, then round scores after 3 s
   uint8_t coverPct = 40;        // covered when light < this % of baseline
   uint8_t strikes = 3;          // cover events before strike-out, 0 = never
   uint8_t hp = 0;               // seeker HP (misses allowed), 0 = unlimited
