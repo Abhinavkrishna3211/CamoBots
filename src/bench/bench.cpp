@@ -48,7 +48,7 @@ void loop() {
   int hit = hw_ir_hit();
   if (hit >= 0) {
     Serial.printf("[bench] SHOT from seeker %d, %lu shots so far\n", hit, ++count);
-    hw_sound(SND_TAUNT);
+    hw_sound(SND_BEEP);  // short and non-blocking, so back-to-back shots all count
   }
   static uint32_t beam, lastLog, lastEdges;
   beam += hw_beam_ms();
