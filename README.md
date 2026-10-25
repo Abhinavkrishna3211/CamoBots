@@ -91,7 +91,7 @@ Badges over the session: Disguise (most survival), Sharpshooter (best accuracy),
 - [x] Scoring, badges and session totals (saved on the blaster)
 - [x] Game page
 - [x] Lost hit and cover messages are repeated in the next check-in
-- [ ] IR, light sensor, speaker and RGB LED drivers tested on real parts (written, waiting on parts)
+- [x] IR, light sensor, speaker, RGB LED and OLED tested on real parts (full round with one body)
 
 Bench numbers are in [docs/bench-results.md](docs/bench-results.md).
 
