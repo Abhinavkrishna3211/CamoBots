@@ -37,10 +37,8 @@ void loop() {
         for (uint32_t t = millis(); millis() - t < 500;) hw_update();
       }
     } else if (c == "scan") {
-      static bool on;
-      on = !on;
-      Serial.printf("[bench] scans %s\n", on ? "on" : "off");
-      hw_pixel(on ? PIX_LIVE : PIX_OFF);  // aim LED shows scans are on
+      scanOn = !scanOn;
+      Serial.printf("[bench] scans %s\n", scanOn ? "on" : "off");
     }
 #endif
     else Serial.printf("[bench] unknown '%s'\n", c.c_str());

@@ -17,7 +17,7 @@
 // Blaster
 #define PIN_TRIGGER    1    // D0, to GND, internal pull-up
 #define PIN_IR_LED     2    // D1, 38 kHz LEDC into transistor base
-#define PIN_AIM_LED    3    // D2
+#define PIN_MUZZLE_LED 3    // D2, orange LED at the barrel tip, flashes on each shot
 #define PIN_BLASTER_SPK 4   // D3
 #define PIN_OLED_SDA   5    // D4
 #define PIN_OLED_SCL   6    // D5

@@ -237,7 +237,14 @@ static void irSend(uint8_t type, bool wait) {
   rmt_write_items(IR_CH, items, 9, false);
 }
 
-void hw_fire() { irSend(IR_SHOT, true); }
+#define MUZZLE_MS 80
+static uint32_t muzzleAt;
+
+void hw_fire() {
+  irSend(IR_SHOT, true);
+  digitalWrite(PIN_MUZZLE_LED, HIGH);
+  muzzleAt = millis();
+}
 void hw_scan() { irSend(IR_SCAN, false); }
 uint16_t hw_ldr() { return 0; }
 void hw_ir_stats(uint32_t* edges, uint32_t* bad) { *edges = *bad = 0; }
@@ -254,7 +261,7 @@ static void hwRealBegin() {
   rmt_config(&c);
   rmt_driver_install(IR_CH, 0, 0);
   pinMode(PIN_TRIGGER, INPUT_PULLUP);
-  pinMode(PIN_AIM_LED, OUTPUT);
+  pinMode(PIN_MUZZLE_LED, OUTPUT);
   ledcSetup(SPK_CH, 2000, 8);
   ledcAttachPin(PIN_BLASTER_SPK, SPK_CH);
   ledcWriteTone(SPK_CH, 0);
@@ -262,7 +269,7 @@ static void hwRealBegin() {
 
 static void hwRealUpdate(uint32_t now) {
   soundUpdate(now);
-  digitalWrite(PIN_AIM_LED, pix == PIX_LIVE);  // aim LED goes out while the trigger is locked
+  if (now - muzzleAt >= MUZZLE_MS) digitalWrite(PIN_MUZZLE_LED, LOW);
 
   static bool was = true;
   static uint32_t at;
