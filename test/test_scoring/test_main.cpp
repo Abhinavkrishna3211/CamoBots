@@ -108,6 +108,13 @@ void test_missed_spot() {
   TEST_ASSERT_EQUAL(180 + 35 + PTS_GHOST, s.body[0]);
 }
 
+void test_taunts() {
+  RoundResult r = base();
+  r.body[1].taunts = 3;
+  RoundScore s = score_round(r);
+  TEST_ASSERT_EQUAL(180 + 3 * PTS_TAUNT + PTS_GHOST, s.body[1]);
+}
+
 void test_seeker_out_of_hp_ends_early() {
   RoundResult r = base();
   capture(r, 0, 20000);
@@ -220,6 +227,7 @@ int main() {
   RUN_TEST(test_cover_freezes_survival);
   RUN_TEST(test_whistle_hunter_window_edge);
   RUN_TEST(test_missed_spot);
+  RUN_TEST(test_taunts);
   RUN_TEST(test_seeker_out_of_hp_ends_early);
   RUN_TEST(test_rotation_three_players);
   RUN_TEST(test_three_round_totals_and_badges);

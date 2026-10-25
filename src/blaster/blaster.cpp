@@ -25,6 +25,9 @@ struct Body {
   bool alive, covered, struckOut, whistled;
   uint8_t strikes, foundBy;
   uint32_t foundAt, lastWhistle, coverOnAt, coveredMs, missedSpotMs;
+  // the hider's phone: claim token (0 = free), taunts this round
+  uint32_t claim, lastTaunt;
+  uint8_t taunts;
 };
 
 static Body bodies[MAX_BODIES];
@@ -57,8 +60,8 @@ static RoundScore lastScore;
 
 // Event feed for the page: sounds, kill feed. The page tracks the last n it saw.
 enum EvKind : uint8_t { EV_JOIN, EV_ROUND, EV_HUNT, EV_SHOT, EV_MISS, EV_FOUND, EV_WHISTLE, EV_COVER, EV_CLEAR,
-                        EV_OUT, EV_END };
-static const char* EV_NAME[] = {"join", "round", "hunt", "shot", "miss", "found", "whistle", "cover", "clear", "out", "end"};
+                        EV_OUT, EV_END, EV_TAUNT };
+static const char* EV_NAME[] = {"join", "round", "hunt", "shot", "miss", "found", "whistle", "cover", "clear", "out", "end", "taunt"};
 struct Event { uint16_t n; uint8_t kind; int8_t body, who; uint32_t t; };
 #define NUM_EVENTS 16
 static Event events[NUM_EVENTS];
@@ -148,6 +151,8 @@ static void startRound(uint32_t now) {
     b.covered = b.struckOut = b.whistled = false;
     b.strikes = 0;
     b.foundAt = b.lastWhistle = b.coveredMs = b.missedSpotMs = 0;
+    b.taunts = 0;
+    b.lastTaunt = 0;
     sendHideStart(i, now);
   }
   event(EV_ROUND);
@@ -175,6 +180,7 @@ static void scoreRound(uint32_t endMs) {
     o.coverEvents = b.strikes;
     o.whistleHunter = !b.alive && is_whistle_hunter(b.foundAt, b.lastWhistle, b.whistled);
     o.missedSpotMs = b.missedSpotMs;
+    o.taunts = b.taunts;
   }
   lastScore = score_round(r);
   scoredWon = lastWon;
@@ -368,6 +374,49 @@ static void manualWhistle(int i) {
   Serial.printf("[game] manual whistle -> body %d\n", i);
 }
 
+// One phone per body: the page sends a random token with every claim and taunt.
+#define TAUNT_COOLDOWN_MS 15000
+static int claimArgs(uint32_t& tok) {
+  tok = strtoul(web.arg("tok").c_str(), nullptr, 10);
+  int i = web.arg("b").toInt();
+  return tok && web.hasArg("b") && i >= 0 && i < MAX_BODIES && bodies[i].used ? i : -1;
+}
+
+static void handleClaim() {
+  uint32_t tok;
+  int i = claimArgs(tok);
+  if (i < 0) return web.send(404);
+  if (bodies[i].claim && bodies[i].claim != tok) return web.send(409, "text/plain", "taken");
+  for (auto& b : bodies)
+    if (b.claim == tok) b.claim = 0;  // one body per phone
+  bodies[i].claim = tok;
+  Serial.printf("[game] body %d claimed by a phone\n", i);
+  web.send(204);
+}
+
+static void handleRelease() {
+  uint32_t tok = strtoul(web.arg("tok").c_str(), nullptr, 10);
+  for (auto& b : bodies)
+    if (web.hasArg("all") || (tok && b.claim == tok)) b.claim = 0;
+  web.send(204);
+}
+
+static void handleTaunt() {
+  uint32_t tok, now = millis();
+  int i = claimArgs(tok);
+  if (i < 0) return web.send(404);
+  auto& b = bodies[i];
+  if (b.claim != tok) return web.send(403, "text/plain", "not your bot");
+  if (phase != PH_HUNT || !b.alive) return web.send(409, "text/plain", "not hunting");
+  if (b.lastTaunt && now - b.lastTaunt < TAUNT_COOLDOWN_MS) return web.send(429, "text/plain", "cooldown");
+  b.lastTaunt = now;
+  b.taunts++;
+  radio_send(b.mac, MSG_WHISTLE, nullptr, 0);  // a taunt is the body's whistle, worth points
+  event(EV_TAUNT, i);
+  Serial.printf("[game] body %d taunts\n", i);
+  web.send(204);
+}
+
 static void resetSession() {
   uint8_t np = session.numPlayers, ns = session.numSeekers;
   session = Session();
@@ -485,9 +534,12 @@ static String stateJson() {
     if (!b.used) continue;
     uint32_t t = huntMs(now);
     add(s, "%s{\"id\":%d,\"st\":\"%s\",\"alive\":%d,\"cov\":%d,\"strk\":%u,\"dark\":%d,\"ldr\":%u,\"seen\":%lu,"
-           "\"ms\":%lu,\"wh\":%ld}",
+           "\"ms\":%lu,\"wh\":%ld,\"tk\":%d,\"tn\":%u,\"tc\":%lu}",
         first ? "" : ",", i, STATE_NAME[b.state % 5], b.alive, b.covered, b.strikes, (b.flags & BF_DARK) != 0, b.ldr,
-        now - b.lastSeen, b.missedSpotMs, phase == PH_HUNT && b.whistled ? (long)(t - b.lastWhistle) : -1L);
+        now - b.lastSeen, b.missedSpotMs, phase == PH_HUNT && b.whistled ? (long)(t - b.lastWhistle) : -1L,
+        b.claim != 0, b.taunts,
+        phase == PH_HUNT && b.lastTaunt && now - b.lastTaunt < TAUNT_COOLDOWN_MS ? TAUNT_COOLDOWN_MS - (now - b.lastTaunt)
+                                                                                 : 0UL);
     first = false;
   }
   s += "],\"ev\":[";
@@ -506,9 +558,9 @@ static String stateJson() {
     s += "],\"bd\":[";
     for (int i = 0; i < MAX_BODIES; i++) {
       auto& o = r.body[i];
-      add(s, "%s[%d,%d,%d,%d,%d,%d,%d,%d,%d,%lu,%d,%u]", i ? "," : "", o.used, c.body[i], c.survival[i],
+      add(s, "%s[%d,%d,%d,%d,%d,%d,%d,%d,%d,%lu,%d,%u,%u]", i ? "," : "", o.used, c.body[i], c.survival[i],
           c.missedSpot[i], c.ghost[i], c.lastChameleon[i], o.alive, o.struckOut, o.foundBy, o.outAtMs,
-          o.whistleHunter, o.coverEvents);
+          o.whistleHunter, o.coverEvents, o.taunts);
     }
     s += "]}";
   }
@@ -525,7 +577,7 @@ static void handleConfig() {
   if (phase == PH_HIDE || phase == PH_HUNT) return web.send(409, "text/plain", "round running");
   for (int i = 0; i < web.args(); i++) {
     String k = web.argName(i);
-    if (k.startsWith("n") && k.length() == 2 && isdigit(k[1])) setName(k[1] - '0', web.arg(i));
+    if (k.length() >= 2 && k[0] == 'n' && isdigit(k[1])) setName(k.substring(1).toInt(), web.arg(i));
     else setting(k, web.arg(i).toInt());
   }
   saveConfig();
@@ -867,6 +919,9 @@ void blaster_setup() {
     manualWhistle(web.arg("b").toInt());
     web.send(204);
   });
+  web.on("/claim", handleClaim);
+  web.on("/release", handleRelease);
+  web.on("/taunt", handleTaunt);
   web.begin();
   Serial.println("[blaster] web on http://192.168.4.1");
 }

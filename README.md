@@ -70,6 +70,7 @@ Join the `CamoBots` Wi-Fi and open `http://192.168.4.1`. The page is built into 
 
 - **Live:** timer, seeker HP and shots, one card per body with strikes, Missed Spot meter, signal and a whistle button, plus a kill feed.
 - **Setup:** round times, seeker HP, cover strikes, player names and who seeks next. Saved on the blaster.
+- **Hider:** each hider picks their bot on their own phone. Free and taken bots are shown, and one phone holds one bot. During the hunt a big TAUNT button blows the bot's whistle for +10 points, once every 15 s. Brave, because the seeker hears where it is. The phone stays silent during the hunt. Setup has a FREE ALL BOTS button.
 - **Scores:** session leaderboard, badges and the last round breakdown.
 - **Big screen:** a large view for a laptop or TV while filming.
 

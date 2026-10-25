@@ -18,7 +18,8 @@ RoundScore score_round(const RoundResult& r) {
     s.survival[i] = (until - covered) / 1000;
     s.missedSpot[i] = b.missedSpotMs / 1000 * PTS_MISSED_SPOT_PER_SEC;
     s.ghost[i] = b.alive;
-    s.body[i] = s.survival[i] + s.missedSpot[i] + b.coverEvents * PTS_COVER_EVENT + (b.alive ? PTS_GHOST : 0);
+    s.body[i] = s.survival[i] + s.missedSpot[i] + b.coverEvents * PTS_COVER_EVENT + (b.alive ? PTS_GHOST : 0) +
+                b.taunts * PTS_TAUNT;
 
     // Strike-outs count for the win but earn the seeker nothing.
     if (!b.alive && !b.struckOut && b.foundBy < r.numSeekers) {

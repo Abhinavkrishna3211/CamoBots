@@ -14,6 +14,7 @@
 #define PTS_LAST_CHAMELEON  50
 #define PTS_COVER_EVENT     (-20)
 #define PTS_MISSED_SPOT_PER_SEC 5
+#define PTS_TAUNT           10    // per taunt from the hider's phone
 
 struct BodyResult {
   bool used;
@@ -25,6 +26,7 @@ struct BodyResult {
   uint8_t coverEvents;
   bool whistleHunter;    // captured soon after its own whistle
   uint32_t missedSpotMs; // time in the seeker's beam without being shot
+  uint8_t taunts;        // TAUNT presses that played
 };
 
 struct RoundResult {
