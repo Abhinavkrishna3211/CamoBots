@@ -208,7 +208,7 @@ body.big .feed li{font-size:18px}
     <div class="card">
       <h3>PLAYERS</h3>
       <div class="form">
-        <div class="field"><label>PLAYERS</label><div class="step" data-k="players" data-min="2" data-max="8" data-inc="1"></div></div>
+        <div class="field"><label>PLAYERS</label><div class="step" data-k="players" data-min="2" data-max="12" data-inc="1"></div></div>
         <div class="field"><label>NEXT SEEKER (ROTATION)</label><select id="first"></select></div>
       </div>
       <div class="names" id="names" style="margin-top:10px"></div>
@@ -286,7 +286,7 @@ function sprite(dead){
     if(ch!==".")out+=`<rect class="${dead&&ch==="p"?"x":ch}" x="${x}" y="${y}" width="${n}" height="1"/>`;x+=n}});
   return `<svg class="spr" viewBox="0 0 22 14" shape-rendering="crispEdges" aria-hidden="true">${out}</svg>`;
 }
-const BCOL=["#8cff3f","#ff4fd8","#3fe0ff","#ffa53f"];
+const BCOL=PCOL;
 const PCOL=["#8cff3f","#ff4fd8","#3fe0ff","#ffa53f","#ffe23f","#b78cff","#ff7a5c","#5cffc8"];
 
 /* ---------- chiptune sound, all original ---------- */

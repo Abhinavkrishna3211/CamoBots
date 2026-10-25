@@ -218,6 +218,12 @@ static void endRound(uint32_t now, bool seekerWon, const char* why, bool scored 
   if (!(seekerWon && killAt == now)) hw_sound(seekerWon ? SND_CELEBRATE : SND_FANFARE);  // else keep the capture jingle
 }
 
+static int numUsed() {
+  int n = 0;
+  for (auto& b : bodies) n += b.used;
+  return n;
+}
+
 static int bodiesLeft() {
   int n = 0;
   for (auto& b : bodies) n += b.used && b.alive;
@@ -226,9 +232,7 @@ static int bodiesLeft() {
 
 // True once per round when the hunt is down to its last body (only with 2+ bodies).
 static bool lastOne(uint32_t now) {
-  int used = 0;
-  for (auto& b : bodies) used += b.used;
-  if (lastOneAt || used < 2 || bodiesLeft() != 1) return false;
+  if (lastOneAt || numUsed() < 2 || bodiesLeft() != 1) return false;
   lastOneAt = now;
   return true;
 }
@@ -615,10 +619,16 @@ static void cham(int x, int y, int s, bool alive, int look = 0) {
 
 // One chameleon per body: looking around while hiding, blinking "!!" while covered, crossed out once caught.
 static void bodyRow(uint32_t now, int y) {
+  int n = numUsed(), k = 0;
   for (int i = 0; i < MAX_BODIES; i++) {
     auto& b = bodies[i];
     if (!b.used) continue;
-    int x = i * 32 + 5;
+    int x = k++ * 128 / n + (128 / n - (n > 4 ? 5 : 22)) / 2;  // centred in its slot
+    if (n > 4) {  // too many for chameleons: a figure each, crossed once caught
+      if (!(b.alive && b.covered && (now / 250) % 2)) oled.drawBitmap(x, y + 2, PAWN, 5, 8, WH);
+      if (!b.alive) oled.drawLine(x - 1, y + 9, x + 5, y + 2, WH);
+      continue;
+    }
     if (b.alive && b.covered && (now / 250) % 2) {
       oled.setCursor(x + 6, y + 2);
       oled.print("!!");
@@ -713,17 +723,20 @@ static void drawHunt(uint32_t now, bool& inv) {
   bool panic = left < 30, locked = (int32_t)(now - lockUntil) < 0;
   // HUD: one figure per hider (crossed out once caught), the state, then seeker HP and a crosshair
   bar("", "");
-  int x = 2;
+  int x = 2, pitch = numUsed() > 4 ? 7 : 8;
   for (auto& b : bodies) {
     if (!b.used) continue;
     oled.drawBitmap(x, 1, PAWN, 5, 8, BK);
     if (!b.alive) oled.drawLine(x - 1, 8, x + 5, 1, WH);
-    x += 8;
+    x += pitch;
   }
-  oled.setTextColor(BK);
-  oled.setCursor(x + 2, 1);
-  oled.print(panic ? ((now / 250) % 2 ? "PANIC!" : "") : locked ? "LOCKED" : "HUNT");
-  oled.setTextColor(WH);
+  const char* st = panic ? ((now / 250) % 2 ? "PANIC!" : "") : locked ? "LOCKED" : "HUNT";
+  if (x + 2 + (int)strlen(st) * 6 <= 118 - cfg.hp * 8) {
+    oled.setTextColor(BK);
+    oled.setCursor(x + 2, 1);
+    oled.print(st);
+    oled.setTextColor(WH);
+  }
   oled.drawBitmap(120, 1, CROSSHAIR, 7, 7, BK);
   for (int i = 0; i < cfg.hp; i++)
     oled.drawBitmap(118 - (cfg.hp - i) * 8, 2, i < hp ? HEART : HEART_EMPTY, 7, 6, BK);

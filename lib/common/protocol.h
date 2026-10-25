@@ -8,7 +8,7 @@
 #define PROTO_MAGIC   0xC4
 #define PROTO_VERSION 2
 #define WIFI_CHANNEL  1
-#define MAX_BODIES    4   // 2-bit body id
+#define MAX_BODIES    8   // fits the 8-bit aliveMask; the IR frame carries no body id
 #define MAX_SEEKERS   4   // 2-bit shooter id
 
 enum MsgType : uint8_t {
