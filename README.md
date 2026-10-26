@@ -9,7 +9,7 @@ Inspired by the game Meccha Chameleon. Not affiliated with it, and it uses none 
 1. **Hide:** a start tone and a green flash, then a timed countdown. Hiders paint and place their bodies. The blaster is locked.
 2. **Hunt:** a bell rings on every device and the blaster goes live. The last 10 s tick down on the blaster. Bodies whistle every so often, giving away their position.
 3. **Shoot:** an IR hit captures a body. A miss locks the trigger for a few seconds.
-4. **Reveal:** surviving bodies whistle and flash a rainbow. Points are tallied and roles rotate.
+4. **Reveal:** surviving bodies whistle and flash a rainbow. Points are tallied. A random hider hunts next, unless a hider taps I'LL HUNT on their phone first. Only the new hunter and the old one trade: the new hunter hands their bot to the old one and takes the blaster.
 
 Burying a body is not allowed. Each body has a light sensor, and a covered body whistles nonstop and loses points.
 
@@ -69,8 +69,8 @@ If an upload fails and the board keeps restarting, hold **BOOT** while plugging 
 Join the `CamoBots` Wi-Fi and open `http://192.168.4.1`. The page is built into the blaster firmware, so it works with no internet.
 
 - **Live:** timer, seeker HP and shots, one card per body with strikes, Missed Spot meter, signal and a whistle button, plus a kill feed.
-- **Setup:** round times, seeker HP, cover strikes, player names and who seeks next. Saved on the blaster.
-- **Hider:** each hider picks their bot on their own phone. Free and taken bots are shown, and one phone holds one bot. During the hunt a big TAUNT button blows the bot's whistle for +10 points, once every 15 s. Brave, because the seeker hears where it is. The phone stays silent during the hunt. Setup has a FREE ALL BOTS button.
+- **Setup:** round times, seeker HP, cover strikes, player names and who hunts next. Saved on the blaster.
+- **Hider:** each hider picks their bot on their own phone. Free and taken bots are shown, and one phone holds one bot. During the hunt a big TAUNT button blows the bot's whistle for +10 points, once every 15 s. Brave, because the seeker hears where it is. The phone stays silent during the hunt. Between rounds an I'LL HUNT! button lets a hider take the blaster next round. Setup has a FREE ALL BOTS button.
 - **Scores:** session leaderboard, badges and the last round breakdown.
 - **Big screen:** a large view for a laptop or TV while filming.
 

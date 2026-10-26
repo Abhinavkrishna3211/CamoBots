@@ -223,7 +223,7 @@ body.big .feed li{font-size:18px}
       <h3>PLAYERS</h3>
       <div class="form">
         <div class="field"><label>PLAYERS</label><div class="step" data-k="players" data-min="2" data-max="12" data-inc="1"></div></div>
-        <div class="field"><label>NEXT SEEKER (ROTATION)</label><select id="first"></select></div>
+        <div class="field"><label>NEXT HUNTER</label><select id="first"></select></div>
       </div>
       <div class="names" id="names" style="margin-top:10px"></div>
       <div class="rota" id="rota"></div>
@@ -251,6 +251,7 @@ body.big .feed li{font-size:18px}
   <section class="view" id="v-hider">
     <div class="card" id="pickCard">
       <h3>PICK YOUR BOT</h3>
+      <div class="sub" id="pickHunter" style="margin-bottom:10px"></div>
       <div class="pick" id="pick"></div>
       <p class="hint" style="margin:10px 0 0">ONE PHONE PER BOT. TAP A FREE ONE TO MAKE IT YOURS.</p>
     </div>
@@ -261,6 +262,8 @@ body.big .feed li{font-size:18px}
         <div class="tstats"><span>TAUNTS <b id="meTaunts">0</b></span><span>+10 EACH, EVERY 15 S</span></div>
       </div>
       <p class="hint" id="meHint"></p>
+      <div class="card" id="huntCard" hidden style="text-align:center"><div id="huntTxt"></div>
+        <div class="ctl" style="margin:10px 0 0"><button class="btn warn" id="huntBtn">I'LL HUNT!</button></div></div>
       <div class="ctl"><button class="btn sm alt" id="switchBtn">SWITCH BOT</button></div>
     </div>
   </section>
@@ -362,8 +365,10 @@ function sfx(k){if(k!=="blip"&&k!=="err"&&hush())return;try{SFX[k]&&SFX[k]()}cat
 let S=null,mock=null,fails=0,connected=false,lastEv=-1,lastSec=-1,view="live",setupDirty=false,form=null;
 const lastWh={},lastWhFeed={},feed=[];
 let combo=0,lastFound=0,lastOne=false;  // captures in a row; last-body alert shown
-const seekerOf=(k,f)=>((f==null?S.first:f)+k)%S.np;
-const hiderOf=(i,f)=>((f==null?S.first:f)+S.ns+i)%S.np;
+// S.seat: [seekers..., owner of body 0, body 1, ...]. Between rounds the next hunter swaps in with seeker 0.
+function seats(){const s=S.seat.slice(),k=s.indexOf(S.next);if(S.ph==="idle"&&k>=S.ns){s[k]=s[0];s[0]=S.next}return s}
+const seekerOf=(k,st)=>(st||seats())[k];
+const hiderOf=(i,st)=>(st||seats())[S.ns+i];
 const nm=p=>(S.names[p]||"P"+(p+1));
 const bname=(i,f)=>i<S.np-S.ns?nm(hiderOf(i,f)):"BODY "+(i+1);
 const clock=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0")};
@@ -547,8 +552,8 @@ function renderScores(){
 function lastRoundHTML(){
   const L=S.last;if(!L)return`<div class="tiny">NO ROUNDS YET. GO PLAY!</div>`;
   let h=`<div style="margin-bottom:6px">${L.won?'<span class="tag r">SEEKER WINS</span>':'<span class="tag g">HIDERS WIN</span>'}${L.sweep?'<span class="tag">CLEAN SWEEP +100</span>':""}<span class="tag c">${esc(L.why.toUpperCase())}</span></div>`;
-  L.sk.forEach((s,k)=>{h+=`<div class="rr"><div><b style="color:${PCOL[seekerOf(k,L.first)]}">${esc(nm(seekerOf(k,L.first)))}</b> <span class="tiny">SEEKER · ${s[1]} OF ${s[2]} SHOTS HIT</span></div><span class="p">${s[0]}</span></div>`});
-  L.bd.forEach((b,i)=>{if(!b[0])return;const p=hiderOf(i,L.first);let tags="";
+  L.sk.forEach((s,k)=>{h+=`<div class="rr"><div><b style="color:${PCOL[seekerOf(k,L.seat)]}">${esc(nm(seekerOf(k,L.seat)))}</b> <span class="tiny">SEEKER · ${s[1]} OF ${s[2]} SHOTS HIT</span></div><span class="p">${s[0]}</span></div>`});
+  L.bd.forEach((b,i)=>{if(!b[0])return;const p=hiderOf(i,L.seat);let tags="";
     if(b[4])tags+='<span class="tag">GHOST +100</span>';if(b[5])tags+='<span class="tag">LAST CHAMELEON +50</span>';
     if(!b[6])tags+=b[7]?'<span class="tag r">STRUCK OUT</span>':`<span class="tag r">SPOTTED AT ${elapsed(b[9])}</span>`;
     if(b[10])tags+='<span class="tag c">WHISTLE HUNTED</span>';if(b[3])tags+=`<span class="tag">MISSED SPOT +${b[3]}</span>`;
@@ -593,10 +598,10 @@ function drawSetup(){
 }
 $("#first").onchange=e=>{form.first=+e.target.value;setupDirty=true;drawRota()};
 function drawRota(){
-  const f=form.first,np=form.players,n=i=>esc(form.names[i]||"P"+(i+1));
-  let h=`NEXT ROUND: <b>${n(f)}</b> SEEKS`;
-  for(let i=0;i<np-1;i++)h+=`, <b>${n((f+1+i)%np)}</b> HIDES ${i<8?"BODY "+(i+1):"(NO BODY)"}`;
-  $("#rota").innerHTML=h+". THE SEEKER MOVES ON ONE PLAYER EACH ROUND.";
+  const f=form.first,n=i=>esc(form.names[i]||"P"+(i+1)),k=form.players===S.np?S.seat.indexOf(f):-1;
+  let h=`NEXT ROUND: <b>${n(f)}</b> HUNTS`;
+  if(k>=S.ns)h+=` AND HANDS BOT ${k-S.ns+1} TO <b>${n(S.seat[0])}</b>`;
+  $("#rota").innerHTML=h+". EVERYONE ELSE KEEPS THEIR BOT. AFTER EACH ROUND A RANDOM HIDER IS PICKED, OR A HIDER TAPS I'LL HUNT ON THEIR PHONE.";
 }
 $("#saveBtn").onclick=()=>{
   if(!form)return;
@@ -609,7 +614,7 @@ $("#freeBtn").onclick=()=>{act("/release",{all:1});toast("ALL BOTS ARE FREE")};
 
 /* ---------- hider view: one phone, one bot ---------- */
 const tok=store.get("camo-tok")||String(1+Math.floor(Math.random()*4e9));store.set("camo-tok",tok);
-let mine=store.get("camo-bot")?+store.get("camo-bot"):null,reclaimAt=0;
+let mine=store.get("camo-bot")?+store.get("camo-bot"):null;
 const setMine=id=>{mine=id;store.set("camo-bot",id==null?"":String(id))};
 async function hreq(path,body){
   if(mock){const r=mock.act(path,body);poll();return r}
@@ -623,9 +628,10 @@ async function claim(id){
 }
 function renderHider(){
   const me=mine==null?null:S.bodies.find(b=>b.id===mine);
-  if(me&&!me.tk&&Date.now()>reclaimAt){reclaimAt=Date.now()+3000;claim(mine)}  // host rebooted: take it back
+  if(me&&!me.tk){setMine(null);toast("PICK YOUR BOT AGAIN");return renderHider()}  // it changed hands, or the host rebooted
   $("#pickCard").hidden=!!me;$("#mine").hidden=!me;
   if(!me){
+    $("#pickHunter").textContent=`HUNTER: ${nm(seekerOf(0))}. HUNTER, GRAB THE BLASTER!`;
     $("#pick").innerHTML=S.bodies.map(b=>`<div class="bc ${b.tk?"taken":"free bob"}" data-b="${b.id}" style="--c:${BCOL[b.id]}">
       <div class="sw">${sprite(false)}</div><div class="bname"><b>BOT ${b.id+1}</b><span>${esc(bname(b.id))}</span></div>
       <div class="status">${b.tk?"TAKEN":"FREE"}</div></div>`).join("")||`<div class="tiny">NO BOTS YET. SWITCH THEM ON NEAR THE BLASTER.</div>`;
@@ -642,6 +648,11 @@ function renderHider(){
   t.firstChild.nodeValue=hunting&&me.tc>0?`WAIT ${Math.ceil(me.tc/1000)}`:"TAUNT!";
   t.querySelector("i").style.width=(hunting?100*(1-me.tc/15000):0)+"%";
   $("#meTaunts").textContent=me.tn;
+  const between=S.ph==="idle"||S.ph==="reveal",mePl=S.seat[S.ns+me.id];
+  $("#huntCard").hidden=!between||me.id>=S.np-S.ns;
+  $("#huntBtn").hidden=S.next===mePl;
+  $("#huntTxt").textContent=S.next===mePl?`YOU HUNT NEXT! HAND BOT ${me.id+1} TO ${nm(S.seat[0])} WHEN THE ROUND STARTS.`:
+    `NEXT HUNTER: ${nm(S.next)}. WANT TO HUNT INSTEAD?`;
   $("#meHint").textContent={idle:"WAIT FOR THE ROUND TO START.",hide:"GO! PAINT YOUR BOT AND HIDE IT.",
     hunt:me.alive?"STAY STILL. TAUNT FOR POINTS, BUT IT GIVES YOU AWAY!":"YOU GOT SPOTTED. CHEER ON THE OTHERS!",reveal:"ROUND OVER. CHECK THE SCORES!"}[S.ph]||"";
 }
@@ -654,6 +665,8 @@ $("#tauntBtn").onclick=async()=>{
   else if(r===403){setMine(null);toast("THAT BOT BELONGS TO SOMEONE ELSE NOW")}
   else if(r===409)toast("ONLY DURING THE HUNT");
 };
+$("#huntBtn").onclick=async()=>{const r=await hreq("/volunteer",{tok});
+  if(r===204){sfx("join");splat("#ffa53f","HUNTER!")}else if(r===409)toast("WAIT FOR THE ROUND TO END")};
 $("#switchBtn").onclick=()=>{hreq("/release",{tok});setMine(null);sfx("blip")};
 
 /* ---------- controls ---------- */
@@ -691,14 +704,16 @@ if(/[?&]mock/.test(location.search)||location.protocol==="file:")startMock();
 function Mock(){
   const cfg={hide:10,hunt:60,whistle:12,reveal:6,lock:3000,hp:0,strikes:3,cover:40};
   const names=["GECKO","IGGY","ZIGGY","P4","P5","P6","P7","P8","P9","P10","P11","P12"];
-  let np=3,ns=1,next=0,first=0,round=0,ph="idle",t0=0,end=0,shots=0,miss=0,hp=0,lockUntil=0,pend=0,evn=0,last=null,W=0,Y="";
+  const seat=[0,1,2,3,4,5,6,7,8,9,10,11];
+  let np=3,ns=1,next=0,round=0,ph="idle",t0=0,end=0,shots=0,miss=0,hp=0,lockUntil=0,pend=0,evn=0,last=null,W=0,Y="";
   const ev=[],P=Array.from({length:12},()=>[0,0,0,0,0,0,0,0]);
   const B=[0,1].map(id=>({id,alive:0,cov:0,strk:0,ms:0,lw:-1,nw:0,cms:0,con:0,out:0,by:0,at:0,whd:0,cl:"",tn:0,lt:0}));
   const now=()=>Date.now(),ht=()=>ph==="hunt"?now()-t0:0;
   const E=(k,b=-1,w=-1)=>{ev.unshift([++evn,k,b,w,ht()]);ev.length=Math.min(ev.length,16)};
   const setPh=(p,len)=>{ph=p;t0=now();end=t0+len};
   const closeCov=(b,t)=>{if(b.cov){b.cov=0;b.cms+=t-b.con}};
-  function startRound(){setPh("hide",cfg.hide*1000);shots=miss=0;hp=cfg.hp;lockUntil=0;pend=0;first=next;
+  function startRound(){setPh("hide",cfg.hide*1000);shots=miss=0;hp=cfg.hp;lockUntil=0;pend=0;
+    const k=seat.indexOf(next);if(k>=ns){seat[k]=seat[0];seat[0]=next;if(B[k-ns])B[k-ns].cl=""}
     B.forEach(b=>Object.assign(b,{alive:1,cov:0,strk:0,ms:0,lw:-1,cms:0,out:0,at:0,whd:0,tn:0,lt:0}));E("round")}
   function endRound(won,why,scored=true){const t=ht();if(ph==="hide")scored=false;setPh("reveal",cfg.reveal*1000);
     W=won?1:0;Y=why;if(scored)score(t,won,why);E("end",-1,W)}
@@ -713,11 +728,11 @@ function Mock(){
     if(nA===1&&nU>1){bd[la][5]=1;bd[la][1]+=50}
     const sweep=nU>0&&nA===0;if(sweep)sk[0]+=100;
     while(bd.length<8)bd.push([0,0,0,0,0,0,0,0,0,0,0,0,0]);
-    const s=first%np;P[s][0]+=sk[0];P[s][1]+=shots;P[s][2]+=hits[0];
+    const s=seat[0];P[s][0]+=sk[0];P[s][1]+=shots;P[s][2]+=hits[0];
     P[s][3]+=bd.filter(b=>b[10]).length;
-    bd.forEach((b,i)=>{if(!b[0]||i>=np-ns)return;const p=(first+ns+i)%np;P[p][0]+=b[1];P[p][4]+=b[11];P[p][5]+=b[2];P[p][6]+=b[3];P[p][7]+=b[4]});
-    round++;next=(next+ns)%np;
-    last={won:won?1:0,why,first,sweep:sweep?1:0,end:endMs,sk:[[sk[0],hits[0],shots]],bd};
+    bd.forEach((b,i)=>{if(!b[0]||i>=np-ns)return;const p=seat[ns+i];P[p][0]+=b[1];P[p][4]+=b[11];P[p][5]+=b[2];P[p][6]+=b[3];P[p][7]+=b[4]});
+    round++;next=seat[ns+Math.floor(Math.random()*(np-ns))];
+    last={won:won?1:0,why,seat:seat.slice(0,np),sweep:sweep?1:0,end:endMs,sk:[[sk[0],hits[0],shots]],bd};
   }
   function badge(j){let best=-1;
     for(let i=0;i<np;i++){const t=P[i];
@@ -747,7 +762,7 @@ function Mock(){
   }
   return{
     state(){tick();const n=now();
-      return{ph,left:ph==="idle"?0:Math.max(0,end-n),len:end-t0,round,first:ph==="idle"?next:first,hp,hpMax:cfg.hp,shots,miss,
+      return{ph,left:ph==="idle"?0:Math.max(0,end-n),len:end-t0,round,seat:seat.slice(0,np),hp,hpMax:cfg.hp,shots,miss,
         lock:ph==="hunt"?Math.max(0,lockUntil-n):0,won:W,why:Y,cfg:Object.assign({},cfg),np,ns,next,names:names.slice(),
         tot:P.slice(0,np).map(r=>r.slice()),badges:[0,1,2,3,4].map(badge),
         bodies:B.map(b=>({id:b.id,st:"",alive:b.alive,cov:b.cov,strk:b.strk,dark:0,ldr:2100,seen:120+Math.random()*200|0,ms:b.ms,wh:b.whd?ht()-b.lw:-1,tk:b.cl?1:0,tn:b.tn,tc:ph==="hunt"&&b.lt?Math.max(0,15000-(n-b.lt)):0})),
@@ -761,12 +776,13 @@ function Mock(){
       else if(path==="/hit"){const b=B[+a.b];if(b&&ph==="hunt"&&b.alive){shots++;E("shot",-1,0);found(b,ht())}}
       else if(path==="/fire")fire();
       else if(path==="/claim"){const b=B[+a.b];if(!b)return 404;if(b.cl&&b.cl!==a.tok)return 409;B.forEach(x=>{if(x.cl===a.tok)x.cl=""});b.cl=a.tok}
+      else if(path==="/volunteer"){const j=B.findIndex(x=>x.cl&&x.cl===a.tok);if(j<0||j>=np-ns)return 404;if(!between)return 409;next=seat[ns+j]}
       else if(path==="/release")B.forEach(x=>{if(a.all||x.cl===a.tok)x.cl=""});
       else if(path==="/taunt"){const b=B[+a.b];if(!b)return 404;if(b.cl!==a.tok)return 403;if(ph!=="hunt"||!b.alive)return 409;
         if(b.lt&&now()-b.lt<15000)return 429;b.lt=now();b.tn++;E("taunt",b.id);this.act("/whistle",a)}
       else if(path==="/config"&&between){
         for(const k in cfg)if(a[k]!=null)cfg[k]=+a[k];
-        if(a.players)np=Math.max(2,Math.min(12,+a.players));if(a.first!=null)next=(+a.first)%np;
+        if(a.players&&+a.players!==np){np=Math.max(2,Math.min(12,+a.players));seat.forEach((_,i)=>seat[i]=i);next%=np}if(a.first!=null)next=(+a.first)%np;
         for(let i=0;i<12;i++)if(a["n"+i])names[i]=String(a["n"+i]).toUpperCase().replace(/[^A-Z0-9 _-]/g,"").slice(0,12)||names[i];
       }
       return 204;

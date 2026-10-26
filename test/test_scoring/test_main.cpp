@@ -124,14 +124,15 @@ void test_seeker_out_of_hp_ends_early() {
   TEST_ASSERT_EQUAL(100 + 160, s.seeker[0]);
 }
 
-void test_rotation_three_players() {
-  uint8_t sk[4], hd[4];
-  rotation(0, 3, 1, sk, hd);
-  TEST_ASSERT_EQUAL(0, sk[0]); TEST_ASSERT_EQUAL(1, hd[0]); TEST_ASSERT_EQUAL(2, hd[1]);
-  rotation(1, 3, 1, sk, hd);
-  TEST_ASSERT_EQUAL(1, sk[0]); TEST_ASSERT_EQUAL(2, hd[0]); TEST_ASSERT_EQUAL(0, hd[1]);
-  rotation(3, 3, 1, sk, hd);  // wraps
-  TEST_ASSERT_EQUAL(0, sk[0]);
+void test_seat_swap() {
+  Session ss;  // 3 players: 0 seeks, 1 and 2 own bodies 0 and 1
+  ss.next = 2;
+  TEST_ASSERT_EQUAL(2, seat_round(ss));  // 2 takes the blaster, 0 takes body 1, 1 keeps body 0
+  TEST_ASSERT_EQUAL(2, ss.seat[0]); TEST_ASSERT_EQUAL(1, ss.seat[1]); TEST_ASSERT_EQUAL(0, ss.seat[2]);
+  TEST_ASSERT_EQUAL(-1, seat_round(ss));  // already seeking: nobody moves
+  for (uint32_t r = 0; r < 10; r++) TEST_ASSERT_NOT_EQUAL(2, random_hider(ss, r));  // never the same seeker twice
+  TEST_ASSERT_EQUAL(1, random_hider(ss, 0));
+  TEST_ASSERT_EQUAL(0, random_hider(ss, 1));
 }
 
 void test_three_round_totals_and_badges() {
@@ -143,25 +144,28 @@ void test_three_round_totals_and_badges() {
   r.body[0].whistleHunter = true;
   r.body[1].missedSpotMs = 10000;
   session_add(ss, r, score_round(r));
-  // Round 1: player 1 seeks, misses everything; player 2 (body 0) covers twice, player 0 (body 1) survives.
+  // Round 1: player 1 volunteers and swaps with 0; player 0 (body 0) survives, player 2 (body 1) covers twice.
+  ss.next = 1;
+  seat_round(ss);
   r = base();
   r.shots[0] = 3;
-  r.body[0].coverEvents = 2;
-  r.body[0].coveredMs = 30000;
+  r.body[1].coverEvents = 2;
+  r.body[1].coveredMs = 30000;
   session_add(ss, r, score_round(r));
-  // Round 2: player 2 seeks, 1 shot 1 hit on body 1 (player 1) at 170 s.
+  // Round 2: player 2 swaps with 1 and seeks; 1 shot 1 hit on body 1 (player 1) at 170 s, player 0 keeps body 0.
+  ss.next = 2;
+  seat_round(ss);
   r = base();
   r.shots[0] = 1;
   capture(r, 1, 170000);
   session_add(ss, r, score_round(r));
 
   TEST_ASSERT_EQUAL(3, ss.round);
-  TEST_ASSERT_EQUAL(0, ss.nextFirst);
-  // p0: seek 100+120+25 = 245; hide body1 r1 180+100 = 280; hide body0 r2 180+100+50 = 330
+  // p0: seek 100+120+25 = 245; hide body0 r1 180+100 = 280; hide body0 r2 180+100+50 = 330
   TEST_ASSERT_EQUAL(245 + 280 + 330, ss.p[0].points);
   // p1: hide body0 r0 = 60; seek r1 = 0; hide body1 r2 = 170
   TEST_ASSERT_EQUAL(60 + 170, ss.p[1].points);
-  // p2: hide body1 r0 180+50+100+50 = 380; hide body0 r1 150-40+100 = 210; seek r2 100+10 = 110
+  // p2: hide body1 r0 180+50+100+50 = 380; hide body1 r1 150-40+100 = 210; seek r2 100+10 = 110
   TEST_ASSERT_EQUAL(380 + 210 + 110, ss.p[2].points);
 
   TEST_ASSERT_EQUAL(0, badge_winner(ss, BADGE_DISGUISE));       // p0 360 vs p2 330
@@ -197,10 +201,9 @@ void test_two_seekers_three_bodies() {
   // round 0: players 0,1 seek; players 2,3,4 own bodies 0,1,2
   TEST_ASSERT_EQUAL(s.seeker[1], ss.p[1].points);
   TEST_ASSERT_EQUAL(90, ss.p[4].points);
-  uint8_t sk[4], hd[4];
-  TEST_ASSERT_EQUAL(2, ss.nextFirst);
-  rotation(ss.nextFirst, 5, 2, sk, hd);
-  TEST_ASSERT_EQUAL(2, sk[0]); TEST_ASSERT_EQUAL(3, sk[1]); TEST_ASSERT_EQUAL(4, hd[0]); TEST_ASSERT_EQUAL(0, hd[1]);
+  ss.next = 4;
+  TEST_ASSERT_EQUAL(4, seat_round(ss));  // 4 takes seeker 0's blaster, 0 takes body 2
+  TEST_ASSERT_EQUAL(4, ss.seat[0]); TEST_ASSERT_EQUAL(1, ss.seat[1]); TEST_ASSERT_EQUAL(0, ss.seat[4]);
 }
 
 void test_protocol_roundtrip_and_bad_crc() {
@@ -229,7 +232,7 @@ int main() {
   RUN_TEST(test_missed_spot);
   RUN_TEST(test_taunts);
   RUN_TEST(test_seeker_out_of_hp_ends_early);
-  RUN_TEST(test_rotation_three_players);
+  RUN_TEST(test_seat_swap);
   RUN_TEST(test_three_round_totals_and_badges);
   RUN_TEST(test_no_badge_when_nobody_qualifies);
   RUN_TEST(test_two_seekers_three_bodies);

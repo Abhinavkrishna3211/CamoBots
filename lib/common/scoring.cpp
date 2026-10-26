@@ -42,17 +42,29 @@ RoundScore score_round(const RoundResult& r) {
   return s;
 }
 
-void rotation(uint8_t first, uint8_t nPlayers, uint8_t nSeekers, uint8_t* seekers, uint8_t* hiders) {
-  for (int k = 0; k < nPlayers; k++) {
-    uint8_t p = (first + k) % nPlayers;
-    if (k < nSeekers) seekers[k] = p;
-    else hiders[k - nSeekers] = p;
-  }
+int seat_round(Session& s) {
+  for (int k = s.numSeekers; k < s.numPlayers; k++)
+    if (s.seat[k] == s.next) {
+      s.seat[k] = s.seat[0];
+      s.seat[0] = s.next;
+      return k;
+    }
+  return -1;  // already seeking
+}
+
+void seat_reset(Session& s) {
+  for (int k = 0; k < MAX_PLAYERS; k++) s.seat[k] = k;
+  s.next %= s.numPlayers;
+}
+
+uint8_t random_hider(const Session& s, uint32_t rnd) {
+  int n = s.numPlayers - s.numSeekers;
+  return n > 0 ? s.seat[s.numSeekers + rnd % n] : s.seat[0];
 }
 
 void session_add(Session& s, const RoundResult& r, const RoundScore& sc) {
-  uint8_t seekers[MAX_PLAYERS], hiders[MAX_PLAYERS];
-  rotation(s.nextFirst, s.numPlayers, s.numSeekers, seekers, hiders);
+  const uint8_t* seekers = s.seat;
+  const uint8_t* hiders = s.seat + s.numSeekers;
   for (int k = 0; k < s.numSeekers; k++) {
     PlayerTotals& t = s.p[seekers[k]];
     t.points += sc.seeker[k];
@@ -69,7 +81,6 @@ void session_add(Session& s, const RoundResult& r, const RoundScore& sc) {
     t.ghosts += sc.ghost[i];
   }
   s.round++;
-  s.nextFirst = (s.nextFirst + s.numSeekers) % s.numPlayers;
 }
 
 static int32_t badgeValue(const PlayerTotals& t, Badge b) {

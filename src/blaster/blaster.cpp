@@ -51,7 +51,7 @@ static uint32_t lastOneAt, tickAt;  // one body left; last countdown tick
 #define NAME_LEN 12
 static Session session;
 static char names[MAX_PLAYERS][NAME_LEN + 1];
-static uint8_t roundFirst;
+static uint8_t lastSeat[MAX_PLAYERS];  // who played what in the last scored round
 static bool haveLast, lastWon, scoredWon;
 static const char* lastWhy = "";
 static const char* scoredWhy = "";
@@ -85,6 +85,7 @@ static void load() {
   if (nvs.getBytesLength("cfg") == sizeof cfg) nvs.getBytes("cfg", &cfg, sizeof cfg);
   if (nvs.getBytesLength("names") == sizeof names) nvs.getBytes("names", names, sizeof names);
   if (nvs.getBytesLength("sess") == sizeof session) nvs.getBytes("sess", &session, sizeof session);
+  memcpy(lastSeat, session.seat, sizeof lastSeat);
 }
 
 static int bodyIdFor(const uint8_t* mac) {
@@ -143,7 +144,9 @@ static void startRound(uint32_t now) {
   lockUntil = missAt = 0;
   combo = 0;
   lastOneAt = 0;
-  roundFirst = session.nextFirst;
+  int moved = seat_round(session);  // the new seeker hands their bot to the old one
+  if (moved >= 0 && moved - session.numSeekers < MAX_BODIES) bodies[moved - session.numSeekers].claim = 0;
+  saveSession();
   for (int i = 0; i < MAX_BODIES; i++) {
     auto& b = bodies[i];
     if (!b.used) continue;
@@ -186,11 +189,12 @@ static void scoreRound(uint32_t endMs) {
   scoredWon = lastWon;
   scoredWhy = lastWhy;
   session_add(session, r, lastScore);
+  memcpy(lastSeat, session.seat, sizeof lastSeat);
+  session.next = random_hider(session, esp_random());  // a volunteer or Setup can still change it
   saveSession();
   haveLast = true;
 
-  uint8_t sk[MAX_PLAYERS], hd[MAX_PLAYERS];
-  rotation(roundFirst, session.numPlayers, session.numSeekers, sk, hd);
+  const uint8_t *sk = session.seat, *hd = session.seat + session.numSeekers;
   for (int k = 0; k < session.numSeekers; k++)
     Serial.printf("[score] seeker %s: %d (hits %u)\n", names[sk[k]], lastScore.seeker[k], lastScore.hits[k]);
   for (int i = 0; i < session.numPlayers - session.numSeekers && i < MAX_BODIES; i++)
@@ -200,6 +204,7 @@ static void scoreRound(uint32_t endMs) {
                     lastScore.lastChameleon[i] ? ", LAST CHAMELEON" : "");
   for (int p = 0; p < session.numPlayers; p++)
     Serial.printf("[score] total %s: %ld\n", names[p], session.p[p].points);
+  Serial.printf("[game] next hunter: %s\n", names[session.next]);
 }
 
 // scored = false for a round stopped by hand: it does not count.
@@ -417,6 +422,20 @@ static void handleTaunt() {
   web.send(204);
 }
 
+// Between rounds a hider can take the blaster; their bot goes to the old seeker.
+static void handleVolunteer() {
+  uint32_t tok = strtoul(web.arg("tok").c_str(), nullptr, 10);
+  if (phase == PH_HIDE || phase == PH_HUNT) return web.send(409, "text/plain", "round on");
+  for (int i = 0; i < MAX_BODIES && i < session.numPlayers - session.numSeekers; i++)
+    if (tok && bodies[i].claim == tok) {
+      session.next = session.seat[session.numSeekers + i];
+      saveSession();
+      Serial.printf("[game] %s will hunt next\n", names[session.next]);
+      return web.send(204);
+    }
+  web.send(404);
+}
+
 static void resetSession() {
   uint8_t np = session.numPlayers, ns = session.numSeekers;
   session = Session();
@@ -437,11 +456,14 @@ static bool setting(const String& k, int v) {
   else if (k == "hp") cfg.hp = constrain(v, 0, 20);
   else if (k == "strikes") cfg.strikes = constrain(v, 0, 9);
   else if (k == "cover") cfg.coverPct = constrain(v, 10, 90);
-  else if (k == "players") session.numPlayers = constrain(v, 2, MAX_PLAYERS);
+  else if (k == "players") {
+    uint8_t n = constrain(v, 2, MAX_PLAYERS);
+    if (n != session.numPlayers) session.numPlayers = n, seat_reset(session);  // seats start over
+  }
   else if (k == "seekers") session.numSeekers = constrain(v, 1, 1);  // ponytail: 1 until extra blasters exist
-  else if (k == "first") session.nextFirst = constrain(v, 0, MAX_PLAYERS - 1);
+  else if (k == "first") session.next = constrain(v, 0, MAX_PLAYERS - 1);
   else return false;
-  session.nextFirst %= session.numPlayers;
+  session.next %= session.numPlayers;
   return true;
 }
 
@@ -485,7 +507,7 @@ static void command(String c, uint32_t now) {
                   "strikes=%u cover=%u players=%u first=%u round=%u\n",
                   radio_channel(), radio_ack_ok(), radio_ack_fails(), PHASE_NAME[phase], cfg.hideSec, cfg.huntSec,
                   cfg.whistleSec, cfg.revealSec, cfg.missLockMs, cfg.hp, cfg.strikes, cfg.coverPct,
-                  session.numPlayers, session.nextFirst, session.round);
+                  session.numPlayers, session.next, session.round);
   }
 }
 
@@ -509,16 +531,18 @@ static String stateJson() {
   s.reserve(2560);
   int32_t left = phase == PH_IDLE ? 0 : max<int32_t>(0, phaseEnd - now);
   int32_t lock = phase == PH_HUNT ? max<int32_t>(0, lockUntil - now) : 0;
-  add(s, "{\"ph\":\"%s\",\"left\":%ld,\"len\":%lu,\"round\":%u,\"first\":%u,\"hp\":%u,\"hpMax\":%u,\"shots\":%u,"
+  add(s, "{\"ph\":\"%s\",\"left\":%ld,\"len\":%lu,\"round\":%u,\"hp\":%u,\"hpMax\":%u,\"shots\":%u,"
          "\"miss\":%u,\"lock\":%ld,\"won\":%d,\"why\":\"%s\",",
-      PHASE_NAME[phase], left, phaseEnd - phaseStart, session.round, phase == PH_IDLE ? session.nextFirst : roundFirst,
+      PHASE_NAME[phase], left, phaseEnd - phaseStart, session.round,
       hp, cfg.hp, shots, misses, lock, lastWon, lastWhy);
   add(s, "\"cfg\":{\"hide\":%u,\"hunt\":%u,\"whistle\":%u,\"reveal\":%u,\"lock\":%u,\"hp\":%u,\"strikes\":%u,"
          "\"cover\":%u},\"np\":%u,\"ns\":%u,\"next\":%u,",
       cfg.hideSec, cfg.huntSec, cfg.whistleSec, cfg.revealSec, cfg.missLockMs, cfg.hp, cfg.strikes, cfg.coverPct,
-      session.numPlayers, session.numSeekers, session.nextFirst);
+      session.numPlayers, session.numSeekers, session.next);
   s += "\"names\":[";
   for (int i = 0; i < MAX_PLAYERS; i++) add(s, "%s\"%s\"", i ? "," : "", names[i]);
+  s += "],\"seat\":[";  // this round's, or the last one's between rounds
+  for (int i = 0; i < session.numPlayers; i++) add(s, "%s%u", i ? "," : "", session.seat[i]);
   s += "],\"tot\":[";
   for (int i = 0; i < session.numPlayers; i++) {
     auto& t = session.p[i];
@@ -552,8 +576,10 @@ static String stateJson() {
   else {
     auto& r = lastRes;
     auto& c = lastScore;
-    add(s, "{\"won\":%d,\"why\":\"%s\",\"first\":%u,\"sweep\":%d,\"end\":%lu,\"sk\":[", scoredWon, scoredWhy, roundFirst,
-        c.cleanSweep, r.endMs);
+    add(s, "{\"won\":%d,\"why\":\"%s\",\"sweep\":%d,\"end\":%lu,\"seat\":[", scoredWon, scoredWhy, c.cleanSweep,
+        r.endMs);
+    for (int i = 0; i < session.numPlayers; i++) add(s, "%s%u", i ? "," : "", lastSeat[i]);
+    s += "],\"sk\":[";
     for (int k = 0; k < r.numSeekers; k++) add(s, "%s[%d,%u,%u]", k ? "," : "", c.seeker[k], c.hits[k], r.shots[k]);
     s += "],\"bd\":[";
     for (int i = 0; i < MAX_BODIES; i++) {
@@ -621,9 +647,7 @@ static int capturePts(const Body& b) {
 }
 
 static const char* hiderName(int body) {
-  uint8_t sk[MAX_PLAYERS], hd[MAX_PLAYERS];
-  rotation(roundFirst, session.numPlayers, session.numSeekers, sk, hd);
-  return body < session.numPlayers - session.numSeekers ? names[hd[body]] : "?";
+  return body < session.numPlayers - session.numSeekers ? names[session.seat[session.numSeekers + body]] : "?";
 }
 
 // Text centred on the screen. Big text gets arcade scanlines cut through it.
@@ -867,8 +891,7 @@ static void drawReveal(uint32_t now) {
   char h[16];
   snprintf(h, sizeof h, "ROUND %u", session.round);
   bar(h, "SCORE");
-  uint8_t sk[MAX_PLAYERS], hd[MAX_PLAYERS];
-  rotation(roundFirst, session.numPlayers, session.numSeekers, sk, hd);
+  const uint8_t *sk = lastSeat, *hd = lastSeat + session.numSeekers;
   int y = 13;  // > seeker, * survived, x caught
   for (int k = 0; k < session.numSeekers && y < 60; k++, y += 10) {
     oled.setCursor(2, y);
@@ -922,6 +945,7 @@ void blaster_setup() {
   web.on("/claim", handleClaim);
   web.on("/release", handleRelease);
   web.on("/taunt", handleTaunt);
+  web.on("/volunteer", handleVolunteer);
   web.begin();
   Serial.println("[blaster] web on http://192.168.4.1");
 }
