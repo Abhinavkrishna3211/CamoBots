@@ -16,6 +16,7 @@ uint16_t hw_ldr();             // body: 0..4095
 int hw_ir_hit();               // body: shooter id of a decoded shot, or -1
 uint32_t hw_beam_ms();         // body: ms spent in the seeker's scan beam since the last call
 bool hw_trigger();             // blaster: true once per press
+uint32_t hw_trigger_held();    // blaster: ms the trigger has been held, 0 when up
 void hw_fire();                // blaster: send an IR shot frame
 void hw_scan();                // blaster: send an IR scan frame (Missed Spot), skipped if IR is busy
 void hw_ir_stats(uint32_t* edges, uint32_t* bad);  // body: raw TSOP edges and bad frames, for the bench

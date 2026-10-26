@@ -24,7 +24,7 @@ All boards are Seeed Studio XIAO ESP32-S3.
 
 The optional OLED on the blaster runs arcade-style screens: a title and high scores between rounds, a hide countdown, then during the hunt a top bar with a figure for each hider (crossed out once caught) and the seeker's HP hearts, plus the timer and shots. After each capture it shows who was caught, the points earned and how many bodies are left. Two captures within 15 s show DOUBLE!, and the last body left gets its own alert. Power it from 5V; on 3V3 it stays blank. If no OLED is wired, the blaster skips it.
 
-Between rounds, pulling the trigger starts the next round once a body has joined. The game page can start one too.
+Between rounds, pulling the trigger starts the next round once a body has joined. Holding the trigger for 3 s stops a round with no points scored. The game page can start and stop rounds too.
 
 The blaster is also the game host. It runs a Wi-Fi hotspot called `CamoBots`, talks to the bodies over ESP-NOW on channel 1, and serves the game page at `http://192.168.4.1`.
 

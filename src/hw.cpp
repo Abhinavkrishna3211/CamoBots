@@ -13,6 +13,7 @@ static Pix pix = PIX_OFF;
 static int irHit = -1;
 static uint32_t beamMs;
 static bool trigger;
+static uint32_t downAt;  // when the trigger went down, 0 while up
 static String line, pending;
 static bool havePending;
 
@@ -295,7 +296,9 @@ static void hwRealUpdate(uint32_t now) {
   if (!t && was && now - at > 50) {
     at = now;
     trigger = true;
+    downAt = now | 1;
   }
+  if (t) downAt = 0;
   was = t;
 }
 #endif
@@ -327,6 +330,8 @@ bool hw_trigger() {
   trigger = false;
   return t;
 }
+
+uint32_t hw_trigger_held() { return downAt ? millis() - downAt : 0; }
 
 bool hw_cmd(String& out) {
   if (!havePending) return false;
@@ -378,8 +383,12 @@ void hw_update() {
 #endif
 #else
     trigger = true;
+    downAt = now | 1;
 #endif
   }
+#if !defined(ROLE_BODY)
+  if (boot && !bootWas) downAt = 0;
+#endif
   bootWas = boot;
 
   hwRealUpdate(now);

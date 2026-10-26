@@ -962,6 +962,13 @@ void blaster_loop() {
   if (hw_cmd(c)) command(c, now);
 
   bool fired = hw_trigger();
+  static bool stopArmed;  // holding the trigger stops a round, but not one the same press started
+  if (fired) stopArmed = phase == PH_HIDE || phase == PH_HUNT;
+  if (stopArmed && hw_trigger_held() >= HOLD_STOP_MS) {
+    stopArmed = false;
+    Serial.println("[game] trigger held: round stopped");
+    command("stop", now);
+  }
   switch (phase) {
     case PH_IDLE:
       if (fired)  // trigger starts a round once a body has joined

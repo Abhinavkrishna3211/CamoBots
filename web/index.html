@@ -679,7 +679,7 @@ document.querySelectorAll(".tab[data-v]").forEach(t=>t.onclick=()=>{
 $("#bigBtn").onclick=()=>{document.querySelector('.tab[data-v="live"]').click();document.body.classList.add("big");try{document.documentElement.requestFullscreen()}catch(e){}};
 $("#exitBig").onclick=()=>{document.body.classList.remove("big");try{document.fullscreenElement&&document.exitFullscreen()}catch(e){}};
 $("#startBtn").onclick=()=>act("/start");
-$("#stopBtn").onclick=()=>act("/stop");
+$("#stopBtn").onclick=()=>{if(confirm("Stop this round? No points are scored."))act("/stop")};
 $("#bodies").addEventListener("click",e=>{
   const w=e.target.closest(".wh");if(w){act("/whistle",{b:w.dataset.b});return}
   const c=e.target.closest(".sw");if(c&&mock){const id=+c.parentNode.id.slice(1);mock.act("/hit",{b:id});poll()}
